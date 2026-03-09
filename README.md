@@ -1,4 +1,4 @@
-# Wishcribe
+# wishcribe ✍️
 
 Multi-speaker audio/video transcription — **Whisper large + pyannote.audio**, fully offline after first run.
 
@@ -15,17 +15,100 @@ Multi-speaker audio/video transcription — **Whisper large + pyannote.audio**, 
 
 ---
 
+## Requirements
+
+- Python 3.9 or higher
+- ffmpeg
+- 4 GB free disk space (for model weights)
+- Internet connection (first run only)
+
+---
+
+## Installing Python
+
+### Windows
+
+1. Go to **https://www.python.org/downloads/windows/**
+2. Click **"Download Python 3.x.x"** (latest version)
+3. Run the installer
+4. ⚠️ **Important:** On the first screen, check **"Add Python to PATH"** before clicking Install
+5. Click **"Install Now"**
+6. Once done, open **Command Prompt** and verify:
+   ```
+   python --version
+   pip --version
+   ```
+   Both should print a version number.
+
+> **Tip for Windows:** Use **Command Prompt** or **PowerShell** to run wishcribe commands.  
+> To open Command Prompt: press `Win + R`, type `cmd`, press Enter.
+
+### macOS
+
+```bash
+# Check if Python is already installed
+python3 --version
+
+# If not installed, use Homebrew
+brew install python
+```
+
+> If you don't have Homebrew: https://brew.sh
+
+### Ubuntu / Debian Linux
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip
+```
+
+---
+
+## Installing ffmpeg
+
+ffmpeg is required to extract audio from video files.
+
+### Windows
+
+1. Go to **https://ffmpeg.org/download.html**
+2. Click **"Windows"** → **"Windows builds by BtbN"**
+3. Download `ffmpeg-master-latest-win64-gpl.zip`
+4. Extract the zip file to `C:\ffmpeg`
+5. Add ffmpeg to PATH:
+   - Press `Win + S` → search **"Environment Variables"**
+   - Click **"Edit the system environment variables"**
+   - Click **"Environment Variables"**
+   - Under **"System variables"**, find **Path** → click **Edit**
+   - Click **New** → type `C:\ffmpeg\bin`
+   - Click OK on all windows
+6. Open a new Command Prompt and verify:
+   ```
+   ffmpeg -version
+   ```
+
+### macOS
+
+```bash
+brew install ffmpeg
+```
+
+### Ubuntu / Debian
+
+```bash
+sudo apt install ffmpeg
+```
+
+---
+
 ## Installation
+
+Once Python and ffmpeg are installed:
 
 ```bash
 pip install wishcribe
 ```
 
-> **ffmpeg is also required** (one-time system install):
-> ```bash
-> brew install ffmpeg        # macOS
-> sudo apt install ffmpeg    # Ubuntu/Debian
-> ```
+> **Windows users:** If `pip` is not found, try `pip3` or `python -m pip install wishcribe`
 
 ---
 
@@ -43,19 +126,19 @@ This downloads and caches:
 
 Output:
 ```
-WISHCRIBE — MODEL DOWNLOADER
+📦  WISHCRIBE — MODEL DOWNLOADER
 ══════════════════════════════════════════
   Whisper model : large
   Diarization   : HuggingFace download (token provided)
 ══════════════════════════════════════════
 
-Downloading Whisper 'large' model (2.9 GB)...
-Whisper 'large' downloaded and cached  (2.9 GB)
+📥 Downloading Whisper 'large' model (2.9 GB)...
+✅ Whisper 'large' downloaded and cached  (2.9 GB)
 
-Downloading pyannote diarization model (~1 GB)...
-Diarization model downloaded and cached
+📥 Downloading pyannote diarization model (~1 GB)...
+✅ Diarization model downloaded and cached
 
-All models cached! wishcribe now works fully offline.
+🎉 All models cached! wishcribe now works fully offline.
    Run transcription with:
    wishcribe --video meeting.mp4
 ```
@@ -151,6 +234,35 @@ for seg in segments:
 
 ---
 
+## Using a virtual environment (recommended)
+
+To avoid conflicts with other Python packages on your system:
+
+### Windows
+```bash
+python -m venv wishcribe-env
+wishcribe-env\Scripts\activate
+pip install wishcribe
+```
+
+### macOS / Linux
+```bash
+python3 -m venv wishcribe-env
+source wishcribe-env/bin/activate
+pip install wishcribe
+```
+
+Every time you open a new terminal, activate the environment first:
+```bash
+# Windows
+wishcribe-env\Scripts\activate
+
+# macOS / Linux
+source wishcribe-env/bin/activate
+```
+
+---
+
 ## How offline mode works
 
 | Cache location | What's stored |
@@ -191,6 +303,37 @@ Only needed once for `wishcribe download`.
 | `<n>_transcript.txt` | Plain text grouped by speaker |
 | `<n>_transcript.srt` | SRT subtitles with speaker labels |
 | `<n>_transcript.json` | Raw JSON array (opt-in) |
+
+---
+
+## Supported formats
+
+**Video:** mp4, mkv, avi, mov, webm, and more  
+**Audio:** mp3, wav, m4a, flac, ogg, aac, opus, and more  
+**Languages:** 90+ (Whisper auto-detects if `--bahasa` not set)
+
+---
+
+## Troubleshooting
+
+**`wishcribe: command not found`**
+```bash
+pip install wishcribe --upgrade
+# or on Windows:
+python -m wishcribe --video meeting.mp4
+```
+
+**`ffmpeg not found`**  
+Follow the ffmpeg installation steps above for your OS.
+
+**Dependency conflicts (e.g. with tensorflow)**  
+Use a virtual environment (see section above) to isolate wishcribe cleanly.
+
+**Out of memory with `large` model**  
+Switch to a smaller model:
+```bash
+wishcribe --video meeting.mp4 --model medium
+```
 
 ---
 
