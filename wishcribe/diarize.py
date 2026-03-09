@@ -19,14 +19,9 @@ _SNAPSHOT_DIR = "snapshots"
 
 
 def _find_cached_model() -> Optional[str]:
-    """
-    Look inside the HuggingFace cache and return the path to the
-    latest snapshot directory, or None if not cached yet.
-    """
     snapshots_dir = os.path.join(_HF_CACHE_PATH, _SNAPSHOT_DIR)
     if not os.path.isdir(snapshots_dir):
         return None
-
     snapshots = [
         os.path.join(snapshots_dir, d)
         for d in os.listdir(snapshots_dir)
@@ -34,8 +29,64 @@ def _find_cached_model() -> Optional[str]:
     ]
     if not snapshots:
         return None
-
     return max(snapshots, key=os.path.getmtime)
+
+
+def _extract_segments(diarization) -> list[tuple[float, float, str]]:
+    """
+    Extract (start, end, speaker) tuples from pyannote diarization output.
+    Handles both old API (.itertracks) and new API (DiarizeOutput / iterable).
+    """
+    segments = []
+
+    # ── New pyannote API: DiarizeOutput (iterable of named tuples) ────────
+    if hasattr(diarization, '__iter__') and not hasattr(diarization, 'itertracks'):
+        try:
+            for item in diarization:
+                # Each item may be a named tuple: (segment, track, label)
+                # or just (segment, label) depending on version
+                if hasattr(item, 'segment') and hasattr(item, 'label'):
+                    segments.append((item.segment.start, item.segment.end, item.label))
+                elif len(item) == 3:
+                    turn, _, speaker = item
+                    segments.append((turn.start, turn.end, speaker))
+                elif len(item) == 2:
+                    turn, speaker = item
+                    segments.append((turn.start, turn.end, speaker))
+            if segments:
+                return segments
+        except Exception:
+            pass
+
+    # ── Old pyannote API: Annotation with .itertracks() ───────────────────
+    if hasattr(diarization, 'itertracks'):
+        return [
+            (turn.start, turn.end, speaker)
+            for turn, _, speaker in diarization.itertracks(yield_label=True)
+        ]
+
+    # ── Fallback: try iterating as (segment, track, label) ────────────────
+    try:
+        for turn, _, speaker in diarization:
+            segments.append((turn.start, turn.end, speaker))
+        if segments:
+            return segments
+    except Exception:
+        pass
+
+    # ── Last resort: check for .labels() and .get_timeline() ─────────────
+    try:
+        for speaker in diarization.labels():
+            for segment in diarization.label_timeline(speaker):
+                segments.append((segment.start, segment.end, speaker))
+        return segments
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        f"Cannot parse diarization output of type {type(diarization)}. "
+        "Please open an issue at https://github.com/dwicak/wishcribe/issues"
+    )
 
 
 def run_diarization(
@@ -45,32 +96,12 @@ def run_diarization(
     model_path: Optional[str] = None,
     verbose: bool = True,
 ) -> list[tuple[float, float, str]]:
-    """
-    Run speaker diarization on a WAV file.
-
-    Parameters
-    ----------
-    audio_path   : Path to 16 kHz mono WAV file
-    hf_token     : HuggingFace token — only needed for first-time download
-    num_speakers : Exact speaker count (optional, improves accuracy)
-    model_path   : Override path to a local pyannote model folder
-    verbose      : Print progress messages
-
-    Returns
-    -------
-    List of (start_sec, end_sec, speaker_label) tuples
-    """
     import torch
-    from pyannote.audio import Pipeline
 
     if verbose:
         print("🔍 Running speaker diarization...")
 
-    pipeline = _load_pipeline(
-        hf_token=hf_token,
-        model_path=model_path,
-        verbose=verbose,
-    )
+    pipeline = _load_pipeline(hf_token=hf_token, model_path=model_path, verbose=verbose)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     pipeline.to(torch.device(device))
@@ -80,10 +111,7 @@ def run_diarization(
     params = {"num_speakers": num_speakers} if num_speakers else {}
     diarization = pipeline(audio_path, **params)
 
-    segments = [
-        (turn.start, turn.end, speaker)
-        for turn, _, speaker in diarization.itertracks(yield_label=True)
-    ]
+    segments = _extract_segments(diarization)
 
     if verbose:
         n = len(set(s[2] for s in segments))
@@ -93,10 +121,6 @@ def run_diarization(
 
 
 def _pipeline_from_pretrained(path_or_id: str, token: Optional[str]):
-    """
-    Call Pipeline.from_pretrained with token, handling API differences
-    between pyannote versions gracefully.
-    """
     from pyannote.audio import Pipeline
     if token:
         try:
@@ -106,22 +130,7 @@ def _pipeline_from_pretrained(path_or_id: str, token: Optional[str]):
     return Pipeline.from_pretrained(path_or_id)
 
 
-def _load_pipeline(
-    hf_token: Optional[str],
-    model_path: Optional[str],
-    verbose: bool,
-):
-    """
-    Load the pyannote Pipeline from the best available source.
-
-    Priority:
-      1. Explicit model_path argument   (fully offline)
-      2. HuggingFace local cache        (token still passed — pyannote checks
-                                         segmentation-3.0 access even for cached loads)
-      3. HuggingFace download via token (online, one-time only)
-    """
-    from pyannote.audio import Pipeline
-
+def _load_pipeline(hf_token: Optional[str], model_path: Optional[str], verbose: bool):
     # ── 1. Explicit local path ────────────────────────────────────────────
     if model_path:
         if not os.path.isdir(model_path):
@@ -136,9 +145,8 @@ def _load_pipeline(
             sys.exit(1)
 
     # ── 2. HuggingFace local cache ────────────────────────────────────────
-    # NOTE: Token must be passed even for cached loads — pyannote verifies
-    # access to pyannote/segmentation-3.0 (a sub-model) on every load.
-    # Without the token it raises a 401 error even if files are on disk.
+    # Token must be passed even for cached loads — pyannote verifies access
+    # to segmentation-3.0 sub-model on every load.
     cached = _find_cached_model()
     if cached:
         if verbose:
@@ -160,16 +168,14 @@ def _load_pipeline(
         print("   2. Accept license (model)  → https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("   3. Accept license (segm.)  → https://huggingface.co/pyannote/segmentation-3.0")
         print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
-        print("   4. Create Read token       → https://huggingface.co/settings/tokens")
+        print("   5. Create Read token       → https://huggingface.co/settings/tokens")
         sys.exit(1)
 
     if verbose:
         print("   Downloading model from HuggingFace (one-time, cached forever after)...")
 
     try:
-        pipeline = _pipeline_from_pretrained(
-            "pyannote/speaker-diarization-3.1", hf_token
-        )
+        pipeline = _pipeline_from_pretrained("pyannote/speaker-diarization-3.1", hf_token)
         if verbose:
             print("   ✅ Model downloaded and cached — future runs work offline")
         return pipeline
@@ -179,5 +185,5 @@ def _load_pipeline(
         print("   1. Valid HuggingFace token  → https://huggingface.co/settings/tokens")
         print("   2. License accepted (model) → https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("   3. License accepted (segm.) → https://huggingface.co/pyannote/segmentation-3.0")
-        print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
+        print("   4. Request access (comm.)   → https://huggingface.co/pyannote/speaker-diarization-community-1")
         sys.exit(1)
