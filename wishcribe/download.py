@@ -140,6 +140,7 @@ def _download_diarization(
         print("   1. Sign up at              → https://huggingface.co/join")
         print("   2. Accept license (model)  → https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("   3. Accept license (segm.)  → https://huggingface.co/pyannote/segmentation-3.0")
+        print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
         print("   4. Create Read token       → https://huggingface.co/settings/tokens")
         return False
 
@@ -173,6 +174,7 @@ def _download_diarization(
         print("   1. Valid HuggingFace token  → https://huggingface.co/settings/tokens")
         print("   2. License accepted (model) → https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("   3. License accepted (segm.) → https://huggingface.co/pyannote/segmentation-3.0")
+        print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
         return False
 
 

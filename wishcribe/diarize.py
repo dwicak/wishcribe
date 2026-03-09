@@ -92,6 +92,20 @@ def run_diarization(
     return segments
 
 
+def _pipeline_from_pretrained(path_or_id: str, token: Optional[str]):
+    """
+    Call Pipeline.from_pretrained with token, handling API differences
+    between pyannote versions gracefully.
+    """
+    from pyannote.audio import Pipeline
+    if token:
+        try:
+            return Pipeline.from_pretrained(path_or_id, token=token)
+        except TypeError:
+            return Pipeline.from_pretrained(path_or_id, use_auth_token=token)
+    return Pipeline.from_pretrained(path_or_id)
+
+
 def _load_pipeline(
     hf_token: Optional[str],
     model_path: Optional[str],
@@ -102,7 +116,8 @@ def _load_pipeline(
 
     Priority:
       1. Explicit model_path argument   (fully offline)
-      2. HuggingFace local cache        (fully offline)
+      2. HuggingFace local cache        (token still passed — pyannote checks
+                                         segmentation-3.0 access even for cached loads)
       3. HuggingFace download via token (online, one-time only)
     """
     from pyannote.audio import Pipeline
@@ -115,18 +130,21 @@ def _load_pipeline(
         if verbose:
             print(f"   Loading model from: {model_path}")
         try:
-            return Pipeline.from_pretrained(model_path)
+            return _pipeline_from_pretrained(model_path, hf_token)
         except Exception as exc:
             print(f"❌ Failed to load model from {model_path}: {exc}")
             sys.exit(1)
 
-    # ── 2. HuggingFace local cache (fully offline) ────────────────────────
+    # ── 2. HuggingFace local cache ────────────────────────────────────────
+    # NOTE: Token must be passed even for cached loads — pyannote verifies
+    # access to pyannote/segmentation-3.0 (a sub-model) on every load.
+    # Without the token it raises a 401 error even if files are on disk.
     cached = _find_cached_model()
     if cached:
         if verbose:
             print("   Loading model from local cache (offline)")
         try:
-            return Pipeline.from_pretrained(cached)
+            return _pipeline_from_pretrained(cached, hf_token)
         except Exception as exc:
             if verbose:
                 print(f"   Cache load failed ({exc}), trying download...")
@@ -137,10 +155,11 @@ def _load_pipeline(
         print("   Run once with --hf-token to download and cache it:")
         print("   wishcribe download --hf-token hf_xxxxxxxxxx")
         print()
-        print("   Setup checklist (all 3 required):")
+        print("   Setup checklist (all required):")
         print("   1. Sign up at              → https://huggingface.co/join")
         print("   2. Accept license (model)  → https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("   3. Accept license (segm.)  → https://huggingface.co/pyannote/segmentation-3.0")
+        print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
         print("   4. Create Read token       → https://huggingface.co/settings/tokens")
         sys.exit(1)
 
@@ -148,17 +167,9 @@ def _load_pipeline(
         print("   Downloading model from HuggingFace (one-time, cached forever after)...")
 
     try:
-        # pyannote >= 3.x uses `token=`, older versions used `use_auth_token=`
-        try:
-            pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                token=hf_token,
-            )
-        except TypeError:
-            pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                use_auth_token=hf_token,
-            )
+        pipeline = _pipeline_from_pretrained(
+            "pyannote/speaker-diarization-3.1", hf_token
+        )
         if verbose:
             print("   ✅ Model downloaded and cached — future runs work offline")
         return pipeline
@@ -168,4 +179,5 @@ def _load_pipeline(
         print("   1. Valid HuggingFace token  → https://huggingface.co/settings/tokens")
         print("   2. License accepted (model) → https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("   3. License accepted (segm.) → https://huggingface.co/pyannote/segmentation-3.0")
+        print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
         sys.exit(1)

@@ -192,7 +192,7 @@ wishcribe --video meeting.mp4 --bahasa id --speakers 2
 # Download default Whisper large model
 wishcribe download --hf-token hf_xxx
 
-# Download a smaller/faster model instead as needed (default model is Large)
+# Download a smaller/faster model instead
 wishcribe download --hf-token hf_xxx --model medium
 
 # Use a manually downloaded pyannote model folder
@@ -208,7 +208,7 @@ wishcribe --video meeting.mp4
 # With explicit token + language + speaker count
 wishcribe --video meeting.mp4 --bahasa id --speakers 2 --hf-token hf_xxx
 
-# Override Whisper model as needed (default model is Large)
+# Override Whisper model
 wishcribe --video meeting.mp4 --model medium
 
 # Use OpenAI API for transcription

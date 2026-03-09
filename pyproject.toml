@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "wishcribe"
-version         = "1.0.4"
+version         = "1.0.5"
 description     = "Multi-speaker audio/video transcription — Whisper large + pyannote.audio (offline)"
 readme          = "README.md"
 license         = { text = "MIT" }
