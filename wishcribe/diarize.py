@@ -35,57 +35,39 @@ def _find_cached_model() -> Optional[str]:
 def _extract_segments(diarization) -> list[tuple[float, float, str]]:
     """
     Extract (start, end, speaker) tuples from pyannote diarization output.
-    Handles both old API (.itertracks) and new API (DiarizeOutput / iterable).
+
+    pyannote.core.Annotation supports two iteration styles:
+      - itertracks(yield_label=True)  → (segment, track, label)   [all versions]
+      - __iter__()                    → (segment, label)           [newer versions]
+
+    DiarizeOutput is a subclass of Annotation so itertracks always works.
+    We call it directly to be safe across all pyannote versions.
     """
-    segments = []
-
-    # ── New pyannote API: DiarizeOutput (iterable of named tuples) ────────
-    if hasattr(diarization, '__iter__') and not hasattr(diarization, 'itertracks'):
-        try:
-            for item in diarization:
-                # Each item may be a named tuple: (segment, track, label)
-                # or just (segment, label) depending on version
-                if hasattr(item, 'segment') and hasattr(item, 'label'):
-                    segments.append((item.segment.start, item.segment.end, item.label))
-                elif len(item) == 3:
-                    turn, _, speaker = item
-                    segments.append((turn.start, turn.end, speaker))
-                elif len(item) == 2:
-                    turn, speaker = item
-                    segments.append((turn.start, turn.end, speaker))
-            if segments:
-                return segments
-        except Exception:
-            pass
-
-    # ── Old pyannote API: Annotation with .itertracks() ───────────────────
+    # Primary: itertracks — works on Annotation and all its subclasses
     if hasattr(diarization, 'itertracks'):
         return [
             (turn.start, turn.end, speaker)
             for turn, _, speaker in diarization.itertracks(yield_label=True)
         ]
 
-    # ── Fallback: try iterating as (segment, track, label) ────────────────
+    # Fallback: newer pyannote __iter__ yields (segment, label) pairs
+    segments = []
     try:
-        for turn, _, speaker in diarization:
-            segments.append((turn.start, turn.end, speaker))
+        for item in diarization:
+            if hasattr(item, 'start'):
+                # item is a Segment directly — shouldn't happen but guard anyway
+                continue
+            seg, label = item[0], item[-1]
+            segments.append((seg.start, seg.end, label))
         if segments:
             return segments
     except Exception:
         pass
 
-    # ── Last resort: check for .labels() and .get_timeline() ─────────────
-    try:
-        for speaker in diarization.labels():
-            for segment in diarization.label_timeline(speaker):
-                segments.append((segment.start, segment.end, speaker))
-        return segments
-    except Exception:
-        pass
-
     raise RuntimeError(
-        f"Cannot parse diarization output of type {type(diarization)}. "
-        "Please open an issue at https://github.com/dwicak/wishcribe/issues"
+        f"Cannot parse diarization output of type {type(diarization)}.\n"
+        "   Please open an issue: https://github.com/dwicak/wishcribe/issues\n"
+        f"   Available attributes: {[a for a in dir(diarization) if not a.startswith('__')]}"
     )
 
 
@@ -145,8 +127,7 @@ def _load_pipeline(hf_token: Optional[str], model_path: Optional[str], verbose: 
             sys.exit(1)
 
     # ── 2. HuggingFace local cache ────────────────────────────────────────
-    # Token must be passed even for cached loads — pyannote verifies access
-    # to segmentation-3.0 sub-model on every load.
+    # Token must be passed — pyannote verifies access to sub-models on every load
     cached = _find_cached_model()
     if cached:
         if verbose:
