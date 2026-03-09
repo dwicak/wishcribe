@@ -1,4 +1,4 @@
-# wishcribe ✍️
+# Wishcribe
 
 Multi-speaker audio/video transcription — **Whisper large + pyannote.audio**, fully offline after first run.
 
@@ -43,19 +43,19 @@ This downloads and caches:
 
 Output:
 ```
-📦  WISHCRIBE — MODEL DOWNLOADER
+WISHCRIBE — MODEL DOWNLOADER
 ══════════════════════════════════════════
   Whisper model : large
   Diarization   : HuggingFace download (token provided)
 ══════════════════════════════════════════
 
-📥 Downloading Whisper 'large' model (2.9 GB)...
-✅ Whisper 'large' downloaded and cached  (2.9 GB)
+Downloading Whisper 'large' model (2.9 GB)...
+Whisper 'large' downloaded and cached  (2.9 GB)
 
-📥 Downloading pyannote diarization model (~1 GB)...
-✅ Diarization model downloaded and cached
+Downloading pyannote diarization model (~1 GB)...
+Diarization model downloaded and cached
 
-🎉 All models cached! wishcribe now works fully offline.
+All models cached! wishcribe now works fully offline.
    Run transcription with:
    wishcribe --video meeting.mp4
 ```
