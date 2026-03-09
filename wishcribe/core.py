@@ -3,9 +3,15 @@ wishcribe.core
 --------------
 Main pipeline: extract audio → diarize → transcribe → merge → write outputs.
 Default Whisper model: large (best accuracy, 2.9 GB).
+
+HuggingFace token auto-detection order:
+  1. hf_token argument
+  2. WISHCRIBE_HF_TOKEN environment variable
+  3. HF_TOKEN environment variable (HuggingFace standard)
 """
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -26,6 +32,20 @@ _MODEL_INFO = {
     "medium": "1.4 GB — slow, very good accuracy",
     "large":  "2.9 GB — slowest, BEST accuracy ⭐ (default)",
 }
+
+
+def _resolve_token(hf_token: Optional[str]) -> Optional[str]:
+    """
+    Resolve the HuggingFace token from multiple sources in priority order:
+      1. Explicit argument (--hf-token or hf_token=)
+      2. WISHCRIBE_HF_TOKEN environment variable
+      3. HF_TOKEN environment variable (HuggingFace standard)
+    """
+    return (
+        hf_token
+        or os.environ.get("WISHCRIBE_HF_TOKEN")
+        or os.environ.get("HF_TOKEN")
+    )
 
 
 def transcribe(
@@ -50,8 +70,8 @@ def transcribe(
     Parameters
     ----------
     input_path   : Path to video or audio file (mp4, mkv, mp3, wav, m4a …)
-    hf_token     : HuggingFace token — only needed ONCE to download the
-                   diarization model. Cached forever after first run.
+    hf_token     : HuggingFace token. If not given, reads from env vars:
+                   WISHCRIBE_HF_TOKEN or HF_TOKEN.
     model_path   : Path to a manually downloaded local pyannote model folder.
     model        : Whisper model size. Default: 'large' (best accuracy).
                    Options: 'tiny' | 'base' | 'small' | 'medium' | 'large'
@@ -71,6 +91,9 @@ def transcribe(
     """
     ensure_dependencies(use_api=use_api)
 
+    # Resolve token from argument or environment variables
+    resolved_token = _resolve_token(hf_token)
+
     input_path = Path(input_path).resolve()
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -82,13 +105,13 @@ def transcribe(
     stem = input_path.stem
 
     if verbose:
-        _banner(input_path.name, model, language, use_api, num_speakers, hf_token, model_path)
+        _banner(input_path.name, model, language, use_api, num_speakers, resolved_token, model_path)
 
     with tempfile.TemporaryDirectory() as tmp:
         audio_path = extract_audio(str(input_path), tmp, verbose=verbose)
         diarization = run_diarization(
             audio_path,
-            hf_token=hf_token,
+            hf_token=resolved_token,
             num_speakers=num_speakers,
             model_path=model_path,
             verbose=verbose,
@@ -125,9 +148,9 @@ def _banner(name, model, language, use_api, num_speakers, hf_token, model_path):
     if model_path:
         diarize_str = f"Local path: {model_path}"
     elif hf_token:
-        diarize_str = "HuggingFace download (first time) → cached offline after"
+        diarize_str = "Local cache + token auth (pyannote/segmentation-3.0)"
     else:
-        diarize_str = "Offline (local cache)"
+        diarize_str = "⚠️  No token — set WISHCRIBE_HF_TOKEN in your shell"
 
     model_desc = _MODEL_INFO.get(model, model)
 

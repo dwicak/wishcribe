@@ -16,6 +16,7 @@ import sys
 from typing import Optional
 
 from .transcribe import DEFAULT_WHISPER_MODEL
+from .core import _resolve_token
 from .diarize import _find_cached_model, _HF_CACHE_PATH
 
 
@@ -37,6 +38,9 @@ def download_all(
     """
     from .deps import ensure_dependencies
     ensure_dependencies(use_api=False)
+
+    # Resolve token from argument or environment variables
+    hf_token = _resolve_token(hf_token)
 
     if verbose:
         _banner(model, hf_token, model_path)
