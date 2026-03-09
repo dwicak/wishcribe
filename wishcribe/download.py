@@ -131,9 +131,12 @@ def _download_diarization(
     # Need to download
     if not hf_token:
         print("\n❌ Diarization model not cached — --hf-token required to download.")
-        print("   Get a free token at: https://huggingface.co/settings/tokens")
-        print("   Accept the license at:")
-        print("   https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print()
+        print("   Setup checklist (all required):")
+        print("   1. Sign up at              → https://huggingface.co/join")
+        print("   2. Accept license (model)  → https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   3. Accept license (segm.)  → https://huggingface.co/pyannote/segmentation-3.0")
+        print("   4. Create Read token       → https://huggingface.co/settings/tokens")
         return False
 
     if verbose:
@@ -164,7 +167,8 @@ def _download_diarization(
         print(f"❌ Failed to download diarization model: {exc}")
         print("   Checklist:")
         print("   1. Valid HuggingFace token  → https://huggingface.co/settings/tokens")
-        print("   2. License accepted         → https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   2. License accepted (model) → https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   3. License accepted (segm.) → https://huggingface.co/pyannote/segmentation-3.0")
         return False
 
 

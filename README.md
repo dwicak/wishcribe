@@ -32,6 +32,9 @@ Multi-speaker audio/video transcription — **Whisper large + pyannote.audio**, 
 2. Click **"Download Python 3.x.x"** (latest version)
 3. Run the installer
 4. ⚠️ **Important:** On the first screen, check **"Add Python to PATH"** before clicking Install
+
+   ![Add Python to PATH](https://www.python.org/static/img/python-logo.png)
+
 5. Click **"Install Now"**
 6. Once done, open **Command Prompt** and verify:
    ```
@@ -114,42 +117,28 @@ pip install wishcribe
 
 ## Quick start
 
-### Step 1 — download all models (run once)
+### Step 1 — Download all models once
 
 ```bash
 wishcribe download --hf-token hf_xxx
 ```
 
 This downloads and caches:
-- **Whisper `large`** (~2.9 GB) → `~/.cache/whisper/large.pt`
-- **pyannote diarization** (~1 GB) → `~/.cache/huggingface/hub/...`
+- **Whisper `large`** (~2.9 GB) → saved locally
+- **pyannote diarization** (~1 GB) → saved locally
 
-Output:
-```
-WISHCRIBE — MODEL DOWNLOADER
-══════════════════════════════════════════
-  Whisper model : large
-  Diarization   : HuggingFace download (token provided)
-══════════════════════════════════════════
+> Get your free HuggingFace token at: https://huggingface.co/settings/tokens  
+> ⚠️ **Accept both licenses before running:**  
+> • https://huggingface.co/pyannote/speaker-diarization-3.1  
+> • https://huggingface.co/pyannote/segmentation-3.0
 
-Downloading Whisper 'large' model (2.9 GB)...
-Whisper 'large' downloaded and cached  (2.9 GB)
-
-Downloading pyannote diarization model (~1 GB)...
-Diarization model downloaded and cached
-
-All models cached! wishcribe now works fully offline.
-   Run transcription with:
-   wishcribe --video meeting.mp4
-```
-
-### Step 2 — transcribe (fully offline, forever)
+### Step 2 — Transcribe (fully offline forever after)
 
 ```bash
 wishcribe --video meeting.mp4
 ```
 
-**That's it.** No token, no internet, no extra flags.
+**That's it.** No token, no internet, no extra flags needed.
 
 ---
 
@@ -158,38 +147,36 @@ wishcribe --video meeting.mp4
 ### Download command
 
 ```bash
-# Download default model (large)
+# Download default Whisper large model
 wishcribe download --hf-token hf_xxx
 
-# Download a specific model size
+# Download a smaller/faster model instead
 wishcribe download --hf-token hf_xxx --model medium
 
-# Use a local pyannote model folder (no HuggingFace needed)
+# Use a manually downloaded pyannote model folder
 wishcribe download --model-path /path/to/pyannote-model
 ```
 
-### Run / transcribe command
+### Transcribe command
 
 ```bash
-# Basic (Whisper large by default)
+# Basic — Whisper large by default
 wishcribe --video meeting.mp4
-wishcribe run --video meeting.mp4    # same thing
 
 # With language + speaker count
 wishcribe --video meeting.mp4 --bahasa id --speakers 3
 
 # Override Whisper model
 wishcribe --video meeting.mp4 --model medium
-wishcribe --video meeting.mp4 --model small
 
-# Use OpenAI API for transcription (diarization still offline)
+# Use OpenAI API for transcription
 wishcribe --video meeting.mp4 --use-api --api-key sk-xxx
 
-# Custom output folder + save JSON
+# Save to a custom folder + include JSON
 wishcribe --video meeting.mp4 --output ./results --json
 ```
 
-### All run options
+### All options
 
 | Argument | Description | Default |
 |---|---|---|
@@ -263,17 +250,6 @@ source wishcribe-env/bin/activate
 
 ---
 
-## How offline mode works
-
-| Cache location | What's stored |
-|---|---|
-| `~/.cache/whisper/large.pt` | Whisper large model weights (2.9 GB) |
-| `~/.cache/huggingface/hub/models--pyannote--...` | Diarization model (~1 GB) |
-
-Once cached, both load instantly from disk — no internet ever needed.
-
----
-
 ## Whisper model guide
 
 | Model | Size | Speed | Accuracy |
@@ -283,16 +259,6 @@ Once cached, both load instantly from disk — no internet ever needed.
 | `small` | 461 MB | Moderate | Better |
 | `medium` | 1.4 GB | Slow | Very good |
 | **`large`** | **2.9 GB** | **Slowest** | **Best ⭐ (default)** |
-
----
-
-## HuggingFace setup (for download command)
-
-1. Sign up at https://huggingface.co
-2. Accept the license: https://huggingface.co/pyannote/speaker-diarization-3.1
-3. Create a Read token: https://huggingface.co/settings/tokens
-
-Only needed once for `wishcribe download`.
 
 ---
 
@@ -337,15 +303,6 @@ wishcribe --video meeting.mp4 --model medium
 
 ---
 
-## Publishing
-
-```bash
-make build      # build dist/
-make publish    # upload to PyPI → pip install wishcribe
-```
-
----
-
 ## License
 
-MIT
+MIT — free to use, modify, and distribute.

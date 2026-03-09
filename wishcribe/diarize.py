@@ -135,11 +135,13 @@ def _load_pipeline(
     if not hf_token:
         print("❌ Diarization model not found in local cache.")
         print("   Run once with --hf-token to download and cache it:")
-        print("   wishcribe --video file.mp4 --hf-token hf_xxxxxxxxxx")
+        print("   wishcribe download --hf-token hf_xxxxxxxxxx")
         print()
-        print("   Get a free token at: https://huggingface.co/settings/tokens")
-        print("   Accept the model license at:")
-        print("   https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   Setup checklist (all 3 required):")
+        print("   1. Sign up at              → https://huggingface.co/join")
+        print("   2. Accept license (model)  → https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   3. Accept license (segm.)  → https://huggingface.co/pyannote/segmentation-3.0")
+        print("   4. Create Read token       → https://huggingface.co/settings/tokens")
         sys.exit(1)
 
     if verbose:
@@ -164,5 +166,6 @@ def _load_pipeline(
         print(f"❌ Failed to download diarization model: {exc}")
         print("   Checklist:")
         print("   1. Valid HuggingFace token  → https://huggingface.co/settings/tokens")
-        print("   2. License accepted         → https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   2. License accepted (model) → https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("   3. License accepted (segm.) → https://huggingface.co/pyannote/segmentation-3.0")
         sys.exit(1)
