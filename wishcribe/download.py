@@ -82,9 +82,19 @@ def _download_whisper(model: str, verbose: bool = True) -> bool:
         import whisper
         whisper.load_model(model)   # downloads + caches automatically
         if verbose:
-            size_gb = os.path.getsize(cache) / 1_073_741_824
-            print(f"✅ Whisper '{model}' downloaded and cached  ({size_gb:.1f} GB)")
-            print(f"   Path: {cache}")
+            # Whisper may save as large-v3.pt etc — find actual cached file
+            cache_dir = os.path.expanduser("~/.cache/whisper")
+            actual = next(
+                (os.path.join(cache_dir, f) for f in os.listdir(cache_dir)
+                 if f.startswith(model)),
+                cache,
+            ) if os.path.isdir(cache_dir) else cache
+            size_str = ""
+            if os.path.isfile(actual):
+                size_gb = os.path.getsize(actual) / 1_073_741_824
+                size_str = f"  ({size_gb:.1f} GB)"
+            print(f"✅ Whisper '{model}' downloaded and cached{size_str}")
+            print(f"   Cache: {os.path.expanduser('~/.cache/whisper/')}")
         return True
     except Exception as exc:
         print(f"❌ Failed to download Whisper '{model}': {exc}")
@@ -132,14 +142,23 @@ def _download_diarization(
 
     try:
         from pyannote.audio import Pipeline
-        Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
-        )
+        # pyannote >= 3.x uses `token=`, older versions used `use_auth_token=`
+        # Try modern API first, fall back to legacy
+        try:
+            Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                token=hf_token,
+            )
+        except TypeError:
+            Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                use_auth_token=hf_token,
+            )
         cached = _find_cached_model()
         if verbose:
             print(f"✅ Diarization model downloaded and cached")
-            print(f"   Path: {cached}")
+            if cached:
+                print(f"   Path: {cached}")
         return True
     except Exception as exc:
         print(f"❌ Failed to download diarization model: {exc}")

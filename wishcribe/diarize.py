@@ -146,10 +146,17 @@ def _load_pipeline(
         print("   Downloading model from HuggingFace (one-time, cached forever after)...")
 
     try:
-        pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
-        )
+        # pyannote >= 3.x uses `token=`, older versions used `use_auth_token=`
+        try:
+            pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                token=hf_token,
+            )
+        except TypeError:
+            pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                use_auth_token=hf_token,
+            )
         if verbose:
             print("   ✅ Model downloaded and cached — future runs work offline")
         return pipeline
