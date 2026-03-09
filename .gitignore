@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+*.wav
+*.mp4
+*.mkv
+*_transcript.txt
+*_transcript.srt
+*_transcript.json

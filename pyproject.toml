@@ -1,0 +1,44 @@
+[build-system]
+requires      = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "wishcribe"
+version         = "1.0.1"
+description     = "Multi-speaker audio/video transcription — Whisper large + pyannote.audio (offline)"
+readme          = "README.md"
+license         = { text = "MIT" }
+requires-python = ">=3.9"
+keywords        = ["wishcribe", "whisper", "transcription", "diarization", "speaker", "audio", "video", "offline"]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "moviepy>=1.0.3",
+    "torch>=2.0.0",
+    "pyannote.audio>=3.1.0",
+    "openai-whisper>=20231117",
+]
+
+[project.optional-dependencies]
+api = ["openai>=1.0.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+wishcribe = "wishcribe.cli:main"
+
+[project.urls]
+Homepage      = "https://github.com/dwicak/wishcribe"
+Repository    = "https://github.com/dwicak/wishcribe"
+Issues        = "https://github.com/dwicak/wishcribe/issues"
+Changelog     = "https://github.com/dwicak/wishcribe/releases"
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["wishcribe*"]
