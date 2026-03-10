@@ -6,8 +6,13 @@ from .models import Segment
 
 def merge_segments(
     whisper_segs: list,
-    diarization: list[tuple[float, float, str]],
+    diarization: list[tuple[float, float, str]] | None,
 ) -> list[Segment]:
+    """
+    Merge Whisper segments with speaker labels.
+    If diarization is None, segments are returned without speaker labels
+    (speaker field will be empty string).
+    """
     merged = []
     for seg in whisper_segs:
         if isinstance(seg, dict):
@@ -22,16 +27,23 @@ def merge_segments(
         if not w_text:
             continue
 
-        best_speaker = "SPEAKER_00"
-        best_overlap = 0.0
-        for d_start, d_end, speaker in diarization:
-            overlap = min(w_end, d_end) - max(w_start, d_start)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_speaker = speaker
+        if diarization is None:
+            # No diarization — store without speaker label
+            merged.append(Segment(
+                start=w_start, end=w_end,
+                speaker="", text=w_text,
+            ))
+        else:
+            best_speaker = "SPEAKER_00"
+            best_overlap = 0.0
+            for d_start, d_end, speaker in diarization:
+                overlap = min(w_end, d_end) - max(w_start, d_start)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_speaker = speaker
 
-        merged.append(Segment(
-            start=w_start, end=w_end,
-            speaker=best_speaker, text=w_text,
-        ))
+            merged.append(Segment(
+                start=w_start, end=w_end,
+                speaker=best_speaker, text=w_text,
+            ))
     return merged
