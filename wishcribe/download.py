@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import shutil
 from typing import Optional
 
 from .transcribe import DEFAULT_WHISPER_MODEL
@@ -24,6 +25,7 @@ def download_all(
     hf_token: Optional[str] = None,
     model: str = DEFAULT_WHISPER_MODEL,
     model_path: Optional[str] = None,
+    force: bool = False,
     verbose: bool = True,
 ) -> None:
     """
@@ -31,22 +33,22 @@ def download_all(
 
     Parameters
     ----------
-    hf_token   : HuggingFace token — required if diarization model not cached yet
+    hf_token   : HuggingFace token — required to download diarization model
     model      : Whisper model to download. Default: 'large'
     model_path : Path to a local pyannote model (skips HuggingFace download)
+    force      : Re-download even if models are already cached
     verbose    : Print progress messages
     """
     from .deps import ensure_dependencies
     ensure_dependencies(use_api=False)
 
-    # Resolve token from argument or environment variables
     hf_token = _resolve_token(hf_token)
 
     if verbose:
-        _banner(model, hf_token, model_path)
+        _banner(model, hf_token, model_path, force)
 
-    whisper_ok   = _download_whisper(model, verbose=verbose)
-    diarize_ok   = _download_diarization(hf_token, model_path, verbose=verbose)
+    whisper_ok = _download_whisper(model, force=force, verbose=verbose)
+    diarize_ok = _download_diarization(hf_token, model_path, force=force, verbose=verbose)
 
     if verbose:
         _summary(whisper_ok, diarize_ok, model)
@@ -62,15 +64,16 @@ def _whisper_is_cached(model: str) -> bool:
     return os.path.isfile(_whisper_cache_path(model))
 
 
-def _download_whisper(model: str, verbose: bool = True) -> bool:
-    """Download Whisper model weights if not already cached."""
+def _download_whisper(model: str, force: bool = False, verbose: bool = True) -> bool:
+    """Download Whisper model weights. Skips if already cached unless force=True."""
     cache = _whisper_cache_path(model)
 
-    if _whisper_is_cached(model):
+    if _whisper_is_cached(model) and not force:
         if verbose:
             size_gb = os.path.getsize(cache) / 1_073_741_824
             print(f"✅ Whisper '{model}' already cached  ({size_gb:.1f} GB)")
             print(f"   Path: {cache}")
+            print(f"   Tip: use --force to re-download")
         return True
 
     if verbose:
@@ -79,14 +82,14 @@ def _download_whisper(model: str, verbose: bool = True) -> bool:
             "medium": "1.4 GB", "large": "2.9 GB",
         }
         size_str = _SIZES.get(model, "unknown size")
-        print(f"\n📥 Downloading Whisper '{model}' model ({size_str})...")
+        action = "Re-downloading" if (force and _whisper_is_cached(model)) else "Downloading"
+        print(f"\n📥 {action} Whisper '{model}' model ({size_str})...")
         print("   This may take a few minutes depending on your connection.")
 
     try:
         import whisper
-        whisper.load_model(model)   # downloads + caches automatically
+        whisper.load_model(model)
         if verbose:
-            # Whisper may save as large-v3.pt etc — find actual cached file
             cache_dir = os.path.expanduser("~/.cache/whisper")
             actual = next(
                 (os.path.join(cache_dir, f) for f in os.listdir(cache_dir)
@@ -110,9 +113,10 @@ def _download_whisper(model: str, verbose: bool = True) -> bool:
 def _download_diarization(
     hf_token: Optional[str],
     model_path: Optional[str],
+    force: bool = False,
     verbose: bool = True,
 ) -> bool:
-    """Download pyannote diarization model if not already cached."""
+    """Download pyannote diarization model. Skips if already cached unless force=True."""
 
     # Custom local path — no download needed
     if model_path:
@@ -124,15 +128,22 @@ def _download_diarization(
             print(f"❌ model_path not found: {model_path}")
             return False
 
-    # Already in HuggingFace cache
+    # Already cached — skip unless force
     cached = _find_cached_model()
-    if cached:
+    if cached and not force:
         if verbose:
             print(f"\n✅ Diarization model already cached (offline)")
             print(f"   Path: {cached}")
+            print(f"   Tip: use --force to re-download")
         return True
 
-    # Need to download
+    # force=True — delete old cache first so it re-downloads fresh
+    if force and os.path.isdir(_HF_CACHE_PATH):
+        if verbose:
+            print(f"\n🗑️  Removing old cached model: {_HF_CACHE_PATH}")
+        shutil.rmtree(_HF_CACHE_PATH)
+
+    # Need token to download
     if not hf_token:
         print("\n❌ Diarization model not cached — --hf-token required to download.")
         print()
@@ -148,8 +159,6 @@ def _download_diarization(
 
     try:
         from pyannote.audio import Pipeline
-        # pyannote >= 3.x uses `token=`, older versions used `use_auth_token=`
-        # Try modern API first, fall back to legacy
         try:
             Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-community-1",
@@ -176,7 +185,7 @@ def _download_diarization(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _banner(model, hf_token, model_path):
+def _banner(model, hf_token, model_path, force=False):
     print("\n" + "═" * 62)
     print("📦  WISHCRIBE — MODEL DOWNLOADER")
     print("═" * 62)
@@ -187,6 +196,8 @@ def _banner(model, hf_token, model_path):
         print(f"  Diarization   : HuggingFace download (token provided)")
     else:
         print(f"  Diarization   : checking local cache...")
+    if force:
+        print(f"  Mode          : ⚠️  Force re-download enabled")
     print("═" * 62)
 
 
