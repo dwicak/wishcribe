@@ -1,9 +1,11 @@
 """
 Speaker diarization — fully offline after first run.
 
+Uses pyannote/speaker-diarization-community-1 (better accuracy than 3.1).
+
 Model loading priority:
   1. Custom local path  (model_path argument / --model-path)
-  2. HuggingFace cache  (~/.cache/huggingface/hub/models--pyannote--speaker-diarization-3.1)
+  2. HuggingFace cache  (~/.cache/huggingface/hub/models--pyannote--speaker-diarization-community-1)
   3. HuggingFace download via token (first-time only, then cached forever)
 """
 from __future__ import annotations
@@ -12,8 +14,9 @@ import os
 import sys
 from typing import Optional
 
+_MODEL_ID    = "pyannote/speaker-diarization-community-1"
 _HF_CACHE_PATH = os.path.expanduser(
-    "~/.cache/huggingface/hub/models--pyannote--speaker-diarization-3.1"
+    "~/.cache/huggingface/hub/models--pyannote--speaker-diarization-community-1"
 )
 _SNAPSHOT_DIR = "snapshots"
 
@@ -36,25 +39,21 @@ def _extract_segments(diarization) -> list[tuple[float, float, str]]:
     """
     Extract (start, end, speaker) tuples from pyannote diarization output.
 
-    Two APIs exist depending on pyannote version:
-
-    NEW (community-1 / DiarizeOutput):
-        output.speaker_diarization is iterable as (segment, speaker) pairs
+    community-1 returns DiarizeOutput with .speaker_diarization attribute,
+    iterable as (segment, speaker) pairs:
         >>> for turn, speaker in output.speaker_diarization: ...
 
-    OLD (speaker-diarization-3.1 / Annotation):
-        output itself has .itertracks()
-        >>> for turn, _, speaker in output.itertracks(yield_label=True): ...
+    Fallback for old Annotation API (.itertracks) kept for compatibility.
     """
 
-    # ── NEW API: DiarizeOutput with .speaker_diarization ──────────────────
+    # community-1 / DiarizeOutput API
     if hasattr(diarization, 'speaker_diarization'):
         segments = []
         for turn, speaker in diarization.speaker_diarization:
             segments.append((turn.start, turn.end, speaker))
         return segments
 
-    # ── OLD API: Annotation with .itertracks() ────────────────────────────
+    # Legacy Annotation API (speaker-diarization-3.1 and older)
     if hasattr(diarization, 'itertracks'):
         return [
             (turn.start, turn.end, speaker)
@@ -100,11 +99,13 @@ def run_diarization(
 
 
 def _pipeline_from_pretrained(path_or_id: str, token: Optional[str]):
+    """Load pipeline — community-1 uses token= kwarg (pyannote.audio >= 3.1)."""
     from pyannote.audio import Pipeline
     if token:
         try:
             return Pipeline.from_pretrained(path_or_id, token=token)
         except TypeError:
+            # Older pyannote.audio fallback
             return Pipeline.from_pretrained(path_or_id, use_auth_token=token)
     return Pipeline.from_pretrained(path_or_id)
 
@@ -124,7 +125,7 @@ def _load_pipeline(hf_token: Optional[str], model_path: Optional[str], verbose: 
             sys.exit(1)
 
     # ── 2. HuggingFace local cache ────────────────────────────────────────
-    # Token must be passed — pyannote verifies sub-model access on every load
+    # community-1 does NOT require token for cached loads (unlike 3.1)
     cached = _find_cached_model()
     if cached:
         if verbose:
@@ -141,27 +142,23 @@ def _load_pipeline(hf_token: Optional[str], model_path: Optional[str], verbose: 
         print("   Run once with --hf-token to download and cache it:")
         print("   wishcribe download --hf-token hf_xxxxxxxxxx")
         print()
-        print("   Setup checklist (all required):")
-        print("   1. Sign up at              → https://huggingface.co/join")
-        print("   2. Accept license (model)  → https://huggingface.co/pyannote/speaker-diarization-3.1")
-        print("   3. Accept license (segm.)  → https://huggingface.co/pyannote/segmentation-3.0")
-        print("   4. Request access (comm.)  → https://huggingface.co/pyannote/speaker-diarization-community-1")
-        print("   5. Create Read token       → https://huggingface.co/settings/tokens")
+        print("   Setup checklist:")
+        print("   1. Sign up at             → https://huggingface.co/join")
+        print("   2. Accept license (model) → https://huggingface.co/pyannote/speaker-diarization-community-1")
+        print("   3. Create Read token      → https://huggingface.co/settings/tokens")
         sys.exit(1)
 
     if verbose:
         print("   Downloading model from HuggingFace (one-time, cached forever after)...")
 
     try:
-        pipeline = _pipeline_from_pretrained("pyannote/speaker-diarization-3.1", hf_token)
+        pipeline = _pipeline_from_pretrained(_MODEL_ID, hf_token)
         if verbose:
             print("   ✅ Model downloaded and cached — future runs work offline")
         return pipeline
     except Exception as exc:
         print(f"❌ Failed to download diarization model: {exc}")
         print("   Checklist:")
-        print("   1. Valid HuggingFace token  → https://huggingface.co/settings/tokens")
-        print("   2. License accepted (model) → https://huggingface.co/pyannote/speaker-diarization-3.1")
-        print("   3. License accepted (segm.) → https://huggingface.co/pyannote/segmentation-3.0")
-        print("   4. Request access (comm.)   → https://huggingface.co/pyannote/speaker-diarization-community-1")
+        print("   1. Valid HuggingFace token → https://huggingface.co/settings/tokens")
+        print("   2. License accepted        → https://huggingface.co/pyannote/speaker-diarization-community-1")
         sys.exit(1)

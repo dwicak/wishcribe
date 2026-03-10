@@ -56,6 +56,7 @@ def transcribe(
     model: str = DEFAULT_WHISPER_MODEL,
     language: Optional[str] = None,
     num_speakers: Optional[int] = None,
+    diarize: bool = True,
     output_dir: Optional[str] = None,
     use_api: bool = False,
     api_key: Optional[str] = None,
@@ -65,7 +66,7 @@ def transcribe(
     verbose: bool = True,
 ) -> list[Segment]:
     """
-    Transcribe an audio/video file with per-speaker labels.
+    Transcribe an audio/video file with optional per-speaker labels.
 
     Parameters
     ----------
@@ -77,6 +78,8 @@ def transcribe(
                    Options: 'tiny' | 'base' | 'small' | 'medium' | 'large'
     language     : BCP-47 code e.g. 'id', 'en'. None = auto-detect.
     num_speakers : Exact speaker count (optional, improves diarization accuracy)
+    diarize      : Whether to run speaker diarization. Default: True.
+                   Set to False to skip diarization (no HuggingFace token needed).
     output_dir   : Where to save output files. Default: same folder as input.
     use_api      : Use OpenAI Whisper API instead of local model
     api_key      : OpenAI API key (required when use_api=True)
@@ -105,24 +108,32 @@ def transcribe(
     stem = input_path.stem
 
     if verbose:
-        _banner(input_path.name, model, language, use_api, num_speakers, resolved_token, model_path)
+        _banner(input_path.name, model, language, use_api, num_speakers, resolved_token, model_path, diarize)
 
     with tempfile.TemporaryDirectory() as tmp:
         audio_path = extract_audio(str(input_path), tmp, verbose=verbose)
-        diarization = run_diarization(
-            audio_path,
-            hf_token=resolved_token,
-            num_speakers=num_speakers,
-            model_path=model_path,
-            verbose=verbose,
-        )
+        if diarize:
+            diarization = run_diarization(
+                audio_path,
+                hf_token=resolved_token,
+                num_speakers=num_speakers,
+                model_path=model_path,
+                verbose=verbose,
+            )
+        else:
+            diarization = None
+            if verbose:
+                print("⏭️  Skipping diarization (--no-diarize)")
         if use_api:
             whisper_segs = transcribe_api(audio_path, api_key, language, verbose=verbose)
         else:
             whisper_segs = transcribe_local(audio_path, model, language, verbose=verbose)
 
     if verbose:
-        print("\n🔗 Merging transcription with speaker labels...")
+        if diarize:
+            print("\n🔗 Merging transcription with speaker labels...")
+        else:
+            print("\n🔗 Assembling transcript (no speaker labels)...")
 
     segments = merge_segments(whisper_segs, diarization)
 
@@ -144,11 +155,13 @@ def transcribe(
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _banner(name, model, language, use_api, num_speakers, hf_token, model_path):
-    if model_path:
+def _banner(name, model, language, use_api, num_speakers, hf_token, model_path, diarize=True):
+    if not diarize:
+        diarize_str = "Disabled (--no-diarize)"
+    elif model_path:
         diarize_str = f"Local path: {model_path}"
     elif hf_token:
-        diarize_str = "Local cache + token auth (pyannote/segmentation-3.0)"
+        diarize_str = "Local cache + token auth (pyannote/speaker-diarization-community-1)"
     else:
         diarize_str = "⚠️  No token — set WISHCRIBE_HF_TOKEN in your shell"
 
@@ -177,7 +190,8 @@ def _print_summary(segments: list[Segment]):
     prev = None
     for seg in segments[:25]:
         if seg.speaker != prev:
-            print(f"\n\033[1m[{seg.speaker}]\033[0m {fmt_time(seg.start)}")
+            label = f"\033[1m[{seg.speaker}]\033[0m " if seg.speaker else ""
+            print(f"\n{label}{fmt_time(seg.start)}")
             prev = seg.speaker
         print(f"  {seg.text}")
     if len(segments) > 25:

@@ -13,6 +13,16 @@ Multi-speaker audio/video transcription — **Whisper large + pyannote.audio**, 
   Baik, topik pertama adalah anggaran kuartal ini.
 ```
 
+Or without speaker labels (no HuggingFace token needed):
+
+```
+00:00:01
+  Selamat datang di rapat hari ini.
+
+00:00:05
+  Terima kasih. Mari kita mulai.
+```
+
 ---
 
 ## Requirements
@@ -32,9 +42,6 @@ Multi-speaker audio/video transcription — **Whisper large + pyannote.audio**, 
 2. Click **"Download Python 3.x.x"** (latest version)
 3. Run the installer
 4. ⚠️ **Important:** On the first screen, check **"Add Python to PATH"** before clicking Install
-
-   ![Add Python to PATH](https://www.python.org/static/img/python-logo.png)
-
 5. Click **"Install Now"**
 6. Once done, open **Command Prompt** and verify:
    ```
@@ -115,38 +122,51 @@ pip install wishcribe
 
 ---
 
-## HuggingFace setup (required once)
+## Two modes of transcription
 
-Wishcribe uses pyannote.audio for speaker detection. You need to accept two model licenses on HuggingFace before downloading.
+Wishcribe supports two modes:
+
+| Mode | Command | HuggingFace token? | Output |
+|---|---|---|---|
+| **With speaker labels** | *(default)* | ✅ Required | `[SPEAKER_00]`, `[SPEAKER_01]` … |
+| **Transcription only** | `--no-diarize` | ❌ Not needed | Timestamps only, no speaker labels |
+
+Use `--no-diarize` if you just want a fast transcript without identifying who speaks when.
+
+---
+
+## HuggingFace setup (required for speaker labels)
+
+> Skip this section if you only want to use `--no-diarize` mode.
+
+Wishcribe uses pyannote.audio for speaker detection. You need to accept the model license on HuggingFace before downloading.
 
 1. Sign up at **https://huggingface.co/join**
-2. Accept license (diarization model): **https://huggingface.co/pyannote/speaker-diarization-3.1**
-3. Accept license (segmentation model): **https://huggingface.co/pyannote/segmentation-3.0**
-4. Create a Read token: **https://huggingface.co/settings/tokens**
+2. Accept license: **https://huggingface.co/pyannote/speaker-diarization-community-1**
+3. Create a Read token: **https://huggingface.co/settings/tokens**
 
-> ⚠️ **Both licenses must be accepted.** The diarization model depends on the segmentation model internally — skipping either one will cause the download to fail.
+> ⚠️ **The license must be accepted before running `wishcribe download`.** Without it, the download will fail with a 401 error.
 
 ---
 
 ## Quick start
 
-### Step 1 — Download all models once
+### With speaker labels (full mode)
 
 ```bash
+# Step 1 — Download all models once
 wishcribe download --hf-token hf_xxx
+
+# Step 2 — Transcribe
+wishcribe --video meeting.mp4 --bahasa id --speakers 2
 ```
 
-This downloads and caches:
-- **Whisper `large`** (~2.9 GB) → saved locally
-- **pyannote diarization** (~1 GB) → saved locally
-
-### Step 2 — Transcribe
+### Without speaker labels (no token needed)
 
 ```bash
-wishcribe --video meeting.mp4 --bahasa id --speakers 2 --hf-token hf_xxx
+# No download step needed — just transcribe
+wishcribe --video meeting.mp4 --bahasa id --no-diarize
 ```
-
-> ⚠️ **Your token is required on every run** — pyannote verifies access to the segmentation model each time, even when loading from local cache.
 
 ---
 
@@ -189,10 +209,10 @@ wishcribe --video meeting.mp4 --bahasa id --speakers 2
 ### Download command
 
 ```bash
-# Download default Whisper large model
+# Download default Whisper large model + pyannote diarization model
 wishcribe download --hf-token hf_xxx
 
-# Download a smaller/faster model instead
+# Download a smaller/faster Whisper model instead
 wishcribe download --hf-token hf_xxx --model medium
 
 # Use a manually downloaded pyannote model folder
@@ -202,11 +222,11 @@ wishcribe download --model-path /path/to/pyannote-model
 ### Transcribe command
 
 ```bash
-# Basic — Whisper large by default (token from WISHCRIBE_HF_TOKEN env var)
-wishcribe --video meeting.mp4
+# With speaker labels (default)
+wishcribe --video meeting.mp4 --bahasa id --speakers 2
 
-# With explicit token + language + speaker count
-wishcribe --video meeting.mp4 --bahasa id --speakers 2 --hf-token hf_xxx
+# Without speaker labels — no HuggingFace token needed, faster
+wishcribe --video meeting.mp4 --bahasa id --no-diarize
 
 # Override Whisper model
 wishcribe --video meeting.mp4 --model medium
@@ -224,10 +244,11 @@ wishcribe --video meeting.mp4 --output ./results --json
 |---|---|---|
 | `--video` | Path to video or audio file **(required)** | — |
 | `--hf-token` | HuggingFace token (or set `WISHCRIBE_HF_TOKEN` env var) | — |
+| `--no-diarize` | Skip speaker diarization — no token needed | `False` |
 | `--model-path` | Path to local pyannote model folder | — |
 | `--model` | `tiny`/`base`/`small`/`medium`/`large` | **`large`** |
 | `--bahasa` | Language code e.g. `id`, `en` | auto-detect |
-| `--speakers` | Number of speakers (optional) | auto |
+| `--speakers` | Number of speakers (optional, ignored with `--no-diarize`) | auto |
 | `--output` | Output folder | same as input |
 | `--use-api` | Use OpenAI Whisper API | `False` |
 | `--api-key` | OpenAI API key (with `--use-api`) | — |
@@ -242,13 +263,11 @@ wishcribe --video meeting.mp4 --output ./results --json
 ```python
 from wishcribe import download, transcribe
 
+# ── With speaker labels ────────────────────────────────────────
 # Step 1 — download models once
 download(hf_token="hf_xxx")
 
-# Step 2 — transcribe
-segments = transcribe("meeting.mp4", hf_token="hf_xxx")
-
-# With options
+# Step 2 — transcribe with speaker labels
 segments = transcribe(
     "meeting.mp4",
     hf_token="hf_xxx",     # or set WISHCRIBE_HF_TOKEN env var
@@ -258,8 +277,19 @@ segments = transcribe(
     output_dir="./out",
 )
 
+# ── Without speaker labels ─────────────────────────────────────
+# No download step needed, no token needed
+segments = transcribe(
+    "meeting.mp4",
+    diarize=False,
+    language="id",
+)
+
 for seg in segments:
-    print(f"[{seg.speaker}] {seg.start:.1f}s  {seg.text}")
+    if seg.speaker:
+        print(f"[{seg.speaker}] {seg.start:.1f}s  {seg.text}")
+    else:
+        print(f"{seg.start:.1f}s  {seg.text}")
 ```
 
 ---
@@ -309,9 +339,9 @@ source wishcribe-env/bin/activate
 
 | File | Description |
 |---|---|
-| `<n>_transcript.txt` | Plain text grouped by speaker |
-| `<n>_transcript.srt` | SRT subtitles with speaker labels |
-| `<n>_transcript.json` | Raw JSON array (opt-in) |
+| `<n>_transcript.txt` | Plain text grouped by speaker (or by time if `--no-diarize`) |
+| `<n>_transcript.srt` | SRT subtitles with speaker labels (or without if `--no-diarize`) |
+| `<n>_transcript.json` | Raw JSON array (opt-in with `--json`) |
 
 ---
 
@@ -325,15 +355,16 @@ source wishcribe-env/bin/activate
 
 ## Troubleshooting
 
-**`401 Client Error` / `Access to model pyannote/segmentation-3.0 is restricted`**  
-Your token must be passed on every run, or set as the `WISHCRIBE_HF_TOKEN` environment variable:
+**`401 Client Error` / `Access to model is restricted`**  
+Make sure the license is accepted and your token is valid:
 ```bash
-wishcribe --video meeting.mp4 --bahasa id --speakers 2 --hf-token hf_xxx
+wishcribe --video meeting.mp4 --bahasa id --hf-token hf_xxx
 # or set once: export WISHCRIBE_HF_TOKEN=hf_xxx
 ```
-Also make sure both licenses are accepted:
-- https://huggingface.co/pyannote/speaker-diarization-3.1
-- https://huggingface.co/pyannote/segmentation-3.0
+Accept the license here: https://huggingface.co/pyannote/speaker-diarization-community-1
+
+**Want to skip the HuggingFace setup entirely?**  
+Use `--no-diarize` — no token needed, works immediately after `pip install wishcribe`.
 
 **`wishcribe: command not found`**
 ```bash
