@@ -36,33 +36,30 @@ def _extract_segments(diarization) -> list[tuple[float, float, str]]:
     """
     Extract (start, end, speaker) tuples from pyannote diarization output.
 
-    pyannote.core.Annotation supports two iteration styles:
-      - itertracks(yield_label=True)  → (segment, track, label)   [all versions]
-      - __iter__()                    → (segment, label)           [newer versions]
+    Two APIs exist depending on pyannote version:
 
-    DiarizeOutput is a subclass of Annotation so itertracks always works.
-    We call it directly to be safe across all pyannote versions.
+    NEW (community-1 / DiarizeOutput):
+        output.speaker_diarization is iterable as (segment, speaker) pairs
+        >>> for turn, speaker in output.speaker_diarization: ...
+
+    OLD (speaker-diarization-3.1 / Annotation):
+        output itself has .itertracks()
+        >>> for turn, _, speaker in output.itertracks(yield_label=True): ...
     """
-    # Primary: itertracks — works on Annotation and all its subclasses
+
+    # ── NEW API: DiarizeOutput with .speaker_diarization ──────────────────
+    if hasattr(diarization, 'speaker_diarization'):
+        segments = []
+        for turn, speaker in diarization.speaker_diarization:
+            segments.append((turn.start, turn.end, speaker))
+        return segments
+
+    # ── OLD API: Annotation with .itertracks() ────────────────────────────
     if hasattr(diarization, 'itertracks'):
         return [
             (turn.start, turn.end, speaker)
             for turn, _, speaker in diarization.itertracks(yield_label=True)
         ]
-
-    # Fallback: newer pyannote __iter__ yields (segment, label) pairs
-    segments = []
-    try:
-        for item in diarization:
-            if hasattr(item, 'start'):
-                # item is a Segment directly — shouldn't happen but guard anyway
-                continue
-            seg, label = item[0], item[-1]
-            segments.append((seg.start, seg.end, label))
-        if segments:
-            return segments
-    except Exception:
-        pass
 
     raise RuntimeError(
         f"Cannot parse diarization output of type {type(diarization)}.\n"
@@ -127,7 +124,7 @@ def _load_pipeline(hf_token: Optional[str], model_path: Optional[str], verbose: 
             sys.exit(1)
 
     # ── 2. HuggingFace local cache ────────────────────────────────────────
-    # Token must be passed — pyannote verifies access to sub-models on every load
+    # Token must be passed — pyannote verifies sub-model access on every load
     cached = _find_cached_model()
     if cached:
         if verbose:
