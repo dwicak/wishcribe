@@ -1,25 +1,40 @@
 """
-Auto-detect and install missing Python dependencies at runtime.
-ffmpeg must be installed separately (brew / apt).
+wishcribe.deps
+--------------
+Auto-install missing runtime dependencies.
+Prefers faster-whisper for maximum transcription speed.
 """
 from __future__ import annotations
 
 import importlib
-import shutil
 import subprocess
 import sys
 
-_BASE_DEPS  = ["moviepy", "pyannote.audio", "torch"]
-_LOCAL_DEPS = ["openai-whisper"]
-_API_DEPS   = ["openai"]
 
-_IMPORT_MAP = {
-    "moviepy":        "moviepy",
-    "pyannote.audio": "pyannote.audio",
-    "torch":          "torch",
-    "openai-whisper": "whisper",
-    "openai":         "openai",
-}
+def ensure_dependencies(use_api: bool = False) -> None:
+    """Install any missing packages at runtime."""
+
+    # Prefer faster-whisper; fall back to openai-whisper if neither installed
+    has_faster = _is_installed("faster_whisper")
+    has_openai = _is_installed("whisper")
+
+    if not has_faster and not has_openai:
+        print("📦 Installing faster-whisper (4-8x faster than openai-whisper)...")
+        _install("faster-whisper")
+
+    # Always-required packages
+    # Note: check "pyannote.audio" (not bare "pyannote") — the core namespace
+    # package can exist without the audio subpackage.
+    for import_name, pkg_spec in [
+        ("torch",         "torch>=2.0.0"),
+        ("pyannote.audio", "pyannote.audio>=3.1.0"),
+        ("moviepy",       "moviepy>=1.0.3"),
+    ]:
+        if not _is_installed(import_name):
+            _install(pkg_spec)
+
+    if use_api and not _is_installed("openai"):
+        _install("openai>=1.0.0")
 
 
 def _is_installed(import_name: str) -> bool:
@@ -30,26 +45,9 @@ def _is_installed(import_name: str) -> bool:
         return False
 
 
-def _pip_install(packages: list[str]) -> None:
-    print(f"📦 Installing: {', '.join(packages)} ...")
+def _install(pkg: str) -> None:
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--quiet", *packages]
+        [sys.executable, "-m", "pip", "install", "--quiet", pkg],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-
-
-def ensure_dependencies(use_api: bool = False) -> None:
-    """Check all required packages and auto-install any that are missing."""
-    required = _BASE_DEPS + (_API_DEPS if use_api else _LOCAL_DEPS)
-    missing  = [pkg for pkg in required if not _is_installed(_IMPORT_MAP[pkg])]
-
-    if missing:
-        print("\n⚙️  Some dependencies are missing. Installing automatically...")
-        _pip_install(missing)
-        print("✅ Dependencies installed.\n")
-
-    if not shutil.which("ffmpeg"):
-        print("⚠️  WARNING: ffmpeg not found on PATH.")
-        print("   Install it:")
-        print("     macOS  : brew install ffmpeg")
-        print("     Ubuntu : sudo apt install ffmpeg")
-        print("     Windows: https://ffmpeg.org/download.html\n")
