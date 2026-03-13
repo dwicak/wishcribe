@@ -3,6 +3,7 @@ wishcribe
 =========
 Fast multi-speaker audio/video transcription.
 Backend: faster-whisper (4-8x faster) + pyannote.audio (offline after first run).
+Apple Silicon: MLX-Whisper auto-selected on M1/M2/M3/M4 (Neural Engine / GPU).
 
 Quick start
 -----------
@@ -20,6 +21,10 @@ Quick start
     # Speed options
     segments = transcribe("meeting.mp4", batch_size=16, compute_type="float16")
 
+    # Accuracy options (v1.2.0)
+    segments = transcribe("meeting.mp4", initial_prompt="Medical: hypertension.")
+    segments = transcribe("meeting.mp4", temperature=0.2, beam_size=10)
+
 Each Segment has: .start  .end  .speaker  .text
 """
 
@@ -28,4 +33,4 @@ from .download import download_all as download
 from .models import Segment
 
 __all__ = ["transcribe", "download", "Segment"]
-__version__ = "1.1.0"
+__version__ = "1.2.0"

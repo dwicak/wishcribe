@@ -17,6 +17,7 @@ Fixes over v1:
 """
 from __future__ import annotations
 
+import gc
 import os
 from typing import Optional
 
@@ -84,7 +85,11 @@ def run_diarization(
 
     pipeline = _load_pipeline(hf_token=hf_token, model_path=model_path, verbose=verbose)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"  # Apple Silicon GPU (Metal Performance Shaders)
     pipeline.to(torch.device(device))
     if verbose:
         print(f"   Device: {device.upper()}")
@@ -94,7 +99,22 @@ def run_diarization(
         params["num_speakers"] = num_speakers
 
     diarization = pipeline(audio_path, **params)
-    segments = _extract_segments(diarization)
+
+    # Extract segments BEFORE deleting pipeline/diarization so that if
+    # _extract_segments raises (unknown output format), the finally block
+    # still frees GPU/MPS/unified memory — no leak on error paths.
+    try:
+        segments = _extract_segments(diarization)
+    finally:
+        del pipeline, diarization
+        gc.collect()
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+        except Exception:
+            pass
 
     if verbose:
         n_speakers = len(set(s[2] for s in segments))

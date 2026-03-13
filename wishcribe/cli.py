@@ -11,16 +11,16 @@ Examples
   # One-time setup
   wishcribe download --hf-token hf_xxx
 
-  # Transcribe with speaker labels (GPU, fast)
+  # Transcribe with speaker labels
   wishcribe --video meeting.mp4 --bahasa id
 
-  # Transcribe without diarization (no token needed)
-  wishcribe --video meeting.mp4 --no-diarize
+  # Accuracy controls (new in v1.2.0)
+  wishcribe --video meeting.mp4 --initial-prompt "Medical: hypertension, tachycardia."
+  wishcribe --video meeting.mp4 --temperature 0.2
+  wishcribe --video meeting.mp4 --beam-size 10
 
-  # Low GPU memory mode
+  # Hardware controls
   wishcribe --video meeting.mp4 --batch-size 4 --compute-type int8
-
-  # CPU-only mode
   wishcribe --video meeting.mp4 --device cpu
 """
 
@@ -34,12 +34,12 @@ from .transcribe import DEFAULT_WHISPER_MODEL
 
 _MODEL_CHOICES = [
     "tiny", "base", "small", "medium",
-    "large", "large-v2", "large-v3", "turbo", "distil-large-v3"
+    "large", "large-v1", "large-v2", "large-v3", "turbo",
 ]
 
 
 def _resolve_token(args_token):
-    return args_token or os.environ.get("WISHCRIBE_HF_TOKEN") or os.environ.get("HF_TOKEN") or None
+    return args_token or os.environ.get("WISHCRIBE_HF_TOKEN") or os.environ.get("HF_TOKEN")
 
 
 # ── Shared argument groups ────────────────────────────────────────────────────
@@ -68,6 +68,36 @@ def _add_speed_args(parser):
                     help="Compute type: float16 (GPU, fast), int8 (CPU/low-mem), float32 (CPU, accurate)")
     sp.add_argument("--device",       default=None, choices=["cuda", "cpu"],
                     help="Device to use (default: auto-detect cuda if available)")
+
+
+def _add_accuracy_args(parser):
+    """Accuracy / transcription quality controls (v1.2.0)."""
+    ac = parser.add_argument_group("Accuracy")
+    ac.add_argument(
+        "--initial-prompt", default=None, metavar="TEXT",
+        help=(
+            "Domain context to guide transcription — e.g. "
+            '"Medical: hypertension, tachycardia." '
+            "Improves specialised vocabulary and punctuation. "
+            "Note: disables batched inference (uses beam search instead)."
+        ),
+    )
+    ac.add_argument(
+        "--temperature", type=float, default=0.0, metavar="FLOAT",
+        help=(
+            "Sampling temperature (default: 0.0 = greedy / deterministic). "
+            "Higher values (0.2-1.0) increase diversity but may reduce accuracy. "
+            "Non-zero temperature disables batched inference."
+        ),
+    )
+    ac.add_argument(
+        "--beam-size", type=int, default=5, metavar="N",
+        help=(
+            "Beam search width (default: 5). Larger = more accurate but slower. "
+            "Only used when batched inference is disabled "
+            "(i.e. when --initial-prompt or non-zero --temperature is set)."
+        ),
+    )
 
 
 # ── download subcommand ───────────────────────────────────────────────────────
@@ -125,6 +155,10 @@ def _cmd_run(args):
             batch_size=getattr(args, "batch_size", 16),
             compute_type=getattr(args, "compute_type", None),
             device=getattr(args, "device", None),
+            # v1.2.0 accuracy controls
+            initial_prompt=getattr(args, "initial_prompt", None),
+            temperature=getattr(args, "temperature", 0.0),
+            beam_size=getattr(args, "beam_size", 5),
         )
     except FileNotFoundError as exc:
         print(f"\n❌ File not found: {exc}")
@@ -149,6 +183,7 @@ def _build_run_parser(subparsers):
     p.add_argument("--video", required=True, help="Path to video or audio file")
     _add_model_args(p)
     _add_speed_args(p)
+    _add_accuracy_args(p)
     p.add_argument("--bahasa",     default=None, metavar="LANG",
                    help="Language code e.g. 'id', 'en' (default: auto-detect)")
     p.add_argument("--speakers",   type=int, default=None,
@@ -193,24 +228,28 @@ def main():
     _build_run_parser(subparsers)
 
     # Legacy shorthand: wishcribe --video file.mp4 (without 'run' subcommand)
-    parser.add_argument("--video",        default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--hf-token",     default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--model-path",   default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--model",        default=DEFAULT_WHISPER_MODEL,
+    parser.add_argument("--video",          default=None,  help=argparse.SUPPRESS)
+    parser.add_argument("--hf-token",       default=None,  help=argparse.SUPPRESS)
+    parser.add_argument("--model-path",     default=None,  help=argparse.SUPPRESS)
+    parser.add_argument("--model",          default=DEFAULT_WHISPER_MODEL,
                         choices=_MODEL_CHOICES,            help=argparse.SUPPRESS)
-    parser.add_argument("--bahasa",       default=None,  help=argparse.SUPPRESS)
-    parser.add_argument("--speakers",     type=int, default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--no-diarize",   action="store_true",    help=argparse.SUPPRESS)
-    parser.add_argument("--use-api",      action="store_true",    help=argparse.SUPPRESS)
-    parser.add_argument("--api-key",      default=None,  help=argparse.SUPPRESS)
-    parser.add_argument("--output",       default=None,  help=argparse.SUPPRESS)
-    parser.add_argument("--json",         action="store_true",    help=argparse.SUPPRESS)
-    parser.add_argument("--no-txt",       action="store_true",    help=argparse.SUPPRESS)
-    parser.add_argument("--no-srt",       action="store_true",    help=argparse.SUPPRESS)
-    parser.add_argument("--quiet",        action="store_true",    help=argparse.SUPPRESS)
-    parser.add_argument("--batch-size",   type=int, default=16,  help=argparse.SUPPRESS)
-    parser.add_argument("--compute-type", default=None,           help=argparse.SUPPRESS)
-    parser.add_argument("--device",       default=None,           help=argparse.SUPPRESS)
+    parser.add_argument("--bahasa",         default=None,  help=argparse.SUPPRESS)
+    parser.add_argument("--speakers",       type=int, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--no-diarize",     action="store_true",    help=argparse.SUPPRESS)
+    parser.add_argument("--use-api",        action="store_true",    help=argparse.SUPPRESS)
+    parser.add_argument("--api-key",        default=None,  help=argparse.SUPPRESS)
+    parser.add_argument("--output",         default=None,  help=argparse.SUPPRESS)
+    parser.add_argument("--json",           action="store_true",    help=argparse.SUPPRESS)
+    parser.add_argument("--no-txt",         action="store_true",    help=argparse.SUPPRESS)
+    parser.add_argument("--no-srt",         action="store_true",    help=argparse.SUPPRESS)
+    parser.add_argument("--quiet",          action="store_true",    help=argparse.SUPPRESS)
+    parser.add_argument("--batch-size",     type=int, default=16,   help=argparse.SUPPRESS)
+    parser.add_argument("--compute-type",   default=None,           help=argparse.SUPPRESS)
+    parser.add_argument("--device",         default=None,           help=argparse.SUPPRESS)
+    # v1.2.0 accuracy args (also in legacy shorthand path)
+    parser.add_argument("--initial-prompt", default=None,           help=argparse.SUPPRESS)
+    parser.add_argument("--temperature",    type=float, default=0.0, help=argparse.SUPPRESS)
+    parser.add_argument("--beam-size",      type=int, default=5,    help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 

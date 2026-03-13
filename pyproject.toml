@@ -4,15 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "wishcribe"
-version         = "1.1.0"
+version         = "1.2.0"
 description     = "Fast multi-speaker audio/video transcription — faster-whisper + pyannote.audio"
 readme          = "README.md"
 license         = { text = "MIT" }
 requires-python = ">=3.9"
 keywords        = [
-    "wishcribe", "whisper", "faster-whisper",
+    "wishcribe", "whisper", "faster-whisper", "mlx-whisper",
     "transcription", "diarization", "speaker",
     "audio", "video", "offline", "batch", "subtitle", "srt",
+    "apple-silicon", "mlx",
 ]
 
 classifiers = [
@@ -28,13 +29,16 @@ classifiers = [
 ]
 
 dependencies = [
-    "moviepy>=1.0.3",
+    "moviepy>=2.0.0",
     "torch>=2.0.0",
     "pyannote.audio>=3.1.0",
     "faster-whisper>=1.0.0",
 ]
 
 [project.optional-dependencies]
+# Apple Silicon: MLX-Whisper uses Neural Engine / GPU via Apple's MLX framework.
+# Automatically selected when running on M1/M2/M3/M4. Much faster than faster-whisper on Mac.
+apple  = ["mlx-whisper>=0.4.0"]
 # Legacy openai-whisper backend (slower, CPU-friendly, no CTranslate2 needed)
 legacy = ["openai-whisper>=20231117"]
 # OpenAI cloud API transcription (no local GPU needed)
@@ -45,10 +49,10 @@ dev    = ["pytest>=7.0"]
 wishcribe = "wishcribe.cli:main"
 
 [project.urls]
-Homepage  = "https://github.com/dwicak/wishcribe"
+Homepage   = "https://github.com/dwicak/wishcribe"
 Repository = "https://github.com/dwicak/wishcribe"
-Issues    = "https://github.com/dwicak/wishcribe/issues"
-Changelog = "https://github.com/dwicak/wishcribe/releases"
+Issues     = "https://github.com/dwicak/wishcribe/issues"
+Changelog  = "https://github.com/dwicak/wishcribe/releases"
 
 [tool.setuptools.packages.find]
 where   = ["."]
