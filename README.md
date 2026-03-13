@@ -1,4 +1,4 @@
-# wishcribe ⚡
+# Wishcribe
 
 **Fast multi-speaker audio/video transcription — fully offline after first run.**
 
@@ -8,14 +8,14 @@
 
 ## Features
 
-- 🎙️ **Multi-speaker transcription** — speaker labels per segment (`[SPEAKER_00]`, `[SPEAKER_01]`, …)
-- ⚡ **4–8× faster than openai-whisper** via CTranslate2 batched inference + VAD
-- 🍎 **Apple Silicon native** — MLX-Whisper auto-selected on M1/M2/M3/M4 (Neural Engine / GPU)
-- 📡 **Fully offline** after one-time model download
-- 🎯 **Accuracy controls** — `--initial-prompt`, `--temperature`, `--beam-size`
-- 🎬 **Video + audio** — mp4, mkv, mov, avi, webm, ts, wmv, flv, mp3, wav, m4a, flac, ogg, aac, opus, wma
-- 📄 **Multiple output formats** — `.txt`, `.srt`, `.json`
-- 🐍 **Python API + CLI**
+- **Multi-speaker transcription** — speaker labels per segment (`[SPEAKER_00]`, `[SPEAKER_01]`, …)
+- **4–8× faster than openai-whisper** via CTranslate2 batched inference + VAD
+- **Apple Silicon native** — MLX-Whisper auto-selected on M1/M2/M3/M4 (Neural Engine / GPU)
+- **Fully offline** after one-time model download
+- **Accuracy controls** — `--initial-prompt`, `--temperature`, `--beam-size`
+- **Video + audio** — mp4, mkv, mov, avi, webm, ts, wmv, flv, mp3, wav, m4a, flac, ogg, aac, opus, wma
+- **Multiple output formats** — `.txt`, `.srt`, `.json`
+- **Python API + CLI**
 
 ---
 
@@ -227,9 +227,9 @@ segments = transcribe("meeting.mp4")   # token picked up automatically
 | `small` | 461 MB | ⚡⚡⚡ | ★★★ | Better accuracy |
 | `medium` | 1.4 GB | ⚡⚡ | ★★★★ | Good speed/accuracy balance |
 | `turbo` | 1.6 GB | ⚡⚡⚡ | ★★★★ | **Default on Apple Silicon** ⭐ |
+| `large-v1` | 2.9 GB | ⚡ | ★★★★ | Original large model |
 | `large-v2` | 2.9 GB | ⚡ | ★★★★★ | **Default on non-Apple** ⭐ |
 | `large-v3` | 3.1 GB | ⚡ | ★★★★★ | Newest large model |
-| `large-v1` | 2.9 GB | ⚡ | ★★★★ | Original large model |
 
 On **Apple Silicon**, `turbo` is the default — it uses the Neural Engine and is significantly faster than `large-v2` with only a marginal accuracy difference.
 
@@ -241,12 +241,12 @@ wishcribe automatically picks the best available backend:
 
 ```
 Apple Silicon (M1/M2/M3/M4)
-  └── mlx-whisper installed?  → MLX-Whisper  (Neural Engine / GPU) ⚡⚡⚡
+  └── mlx-whisper installed?  → MLX-Whisper  (Neural Engine / GPU)
   └── else                    → faster-whisper (CPU)
 
 Other platforms
-  └── faster-whisper installed? → faster-whisper + batched inference + VAD ⚡⚡
-  └── else                      → openai-whisper (fallback, slower) ⚡
+  └── faster-whisper installed? → faster-whisper + batched inference + VAD
+  └── else                      → openai-whisper (fallback, slower)
 ```
 
 **MLX-Whisper** (Apple Silicon) automatically selects the right quantized model based on available RAM:
@@ -397,21 +397,21 @@ wishcribe --video meeting.mp4 --bahasa id
 ## Changelog
 
 ### v1.2.0
-- 🍎 **MLX-Whisper backend** — Apple Silicon M1/M2/M3/M4, auto-selected when `mlx-whisper` is installed
-- 🍎 **Default model `turbo`** on Apple Silicon (faster + accurate via Neural Engine)
-- 🍎 **OMP_NUM_THREADS** auto-tuned to physical performance cores on Apple Silicon
-- 🍎 **Auto-quantization** — picks 4-bit or 8-bit MLX model based on available unified memory
-- 🎯 **`--initial-prompt`** — inject domain context for specialised vocabulary
-- 🎯 **`--temperature`** — sampling temperature (0.0 = true greedy, always deterministic)
-- 🎯 **`--beam-size`** — beam search width for non-batched path
-- 🛠️ **Pipeline memory leak fix** — GPU memory freed even when `BatchedInferencePipeline.transcribe()` raises mid-batch
-- 🛠️ **Diarization memory fix** — GPU/MPS memory freed even if segment extraction fails
-- 🛠️ **`wishcribe download`** mirrors transcription default on Apple Silicon (turbo, not large-v2)
-- 🛠️ **`large-v1`** added to CLI model choices
-- 🛠️ **MLX cache purge** on `--force` re-download
-- 🛠️ **`moviepy>=2.0.0`** pin (2.x API required)
+- **MLX-Whisper backend** — Apple Silicon M1/M2/M3/M4, auto-selected when `mlx-whisper` is installed
+- **Default model `turbo`** on Apple Silicon (faster + accurate via Neural Engine)
+- **OMP_NUM_THREADS** auto-tuned to physical performance cores on Apple Silicon
+- **Auto-quantization** — picks 4-bit or 8-bit MLX model based on available unified memory
+- **`--initial-prompt`** — inject domain context for specialised vocabulary
+- **`--temperature`** — sampling temperature (0.0 = true greedy, always deterministic)
+- **`--beam-size`** — beam search width for non-batched path
+- **Pipeline memory leak fix** — GPU memory freed even when `BatchedInferencePipeline.transcribe()` raises mid-batch
+- **Diarization memory fix** — GPU/MPS memory freed even if segment extraction fails
+- **`wishcribe download`** mirrors transcription default on Apple Silicon (turbo, not large-v2)
+- **`large-v1`** added to CLI model choices
+- **MLX cache purge** on `--force` re-download
+- **`moviepy>=2.0.0`** pin (2.x API required)
 
-### v1.1.1
+### v1.1.1 (Bugs fix, but not released. Included in v1.2.0)
 - Fix: `_suppress_fd2()` degrades gracefully on unusual fd environments
 - Fix: `sys.exit()` replaced with `RuntimeError` throughout (library-safe)
 - Fix: GPU memory freed after transcription before diarization loads
