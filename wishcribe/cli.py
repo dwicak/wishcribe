@@ -14,6 +14,10 @@ Examples
   # Transcribe with speaker labels
   wishcribe --video meeting.mp4 --bahasa id
 
+  # Apple Silicon — install fastest backend first
+  pip install "wishcribe[apple]"   # Lightning-Whisper-MLX + MLX-Whisper
+  wishcribe --video meeting.mp4    # auto-selects Lightning on M-series
+
   # Accuracy controls (new in v1.2.0)
   wishcribe --video meeting.mp4 --initial-prompt "Medical: hypertension, tachycardia."
   wishcribe --video meeting.mp4 --temperature 0.2

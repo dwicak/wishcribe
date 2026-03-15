@@ -3,12 +3,19 @@ wishcribe.transcribe
 --------------------
 Transcription backends in priority order:
 
-  1. MLX-Whisper  — Apple Silicon only (M1/M2/M3/M4). Uses the Neural Engine /
-                    GPU via Apple's MLX framework. Fastest on Mac, no CUDA needed.
-  2. faster-whisper — CTranslate2 backend. 4-8x faster than openai-whisper.
+  Apple Silicon (M1/M2/M3/M4):
+    1. Lightning-Whisper-MLX — batched decoding on Neural Engine / GPU.
+                    10× faster than standard MLX-Whisper. Distil models available.
+                    pip install "wishcribe[apple]"
+    2. MLX-Whisper  — standard MLX backend. Slower than Lightning but supports
+                    more models and initial_prompt. Falls back to this when
+                    lightning-whisper-mlx is not installed.
+    3. faster-whisper — CPU fallback on Apple Silicon.
+
+  Other platforms:
+    4. faster-whisper — CTranslate2 backend. 4-8x faster than openai-whisper.
                     Works on CUDA GPU and CPU. Batched inference + VAD built in.
-  3. openai-whisper — Original CPU/GPU backend. Fallback when faster-whisper
-                    is not installed.
+    5. openai-whisper — Original CPU/GPU backend. Last resort fallback.
 
 New in v1.2.0
 -------------
@@ -26,6 +33,7 @@ New in v1.3.0
   - vad_filter=False    : --no-vad escape hatch to bypass VAD (item 13)
   - vad_threshold / vad_min_silence_ms / vad_speech_pad_ms (item 14)
   - _apple_chip_name()  : reads sysctl for exact chip label in banner (item 16)
+  - Lightning-Whisper-MLX backend added as priority 1 on Apple Silicon
 """
 from __future__ import annotations
 
@@ -155,6 +163,35 @@ _OW_MODEL_MAP = {
     "turbo": "large",
 }
 
+# Lightning-Whisper-MLX supported model names.
+# lightning-whisper-mlx uses its own names — map wishcribe aliases to them.
+# Models that lightning supports natively (as of v0.0.10):
+#   tiny, small, base, medium, large, large-v2, large-v3
+#   distil-small.en, distil-medium.en, distil-large-v2, distil-large-v3
+# 'turbo' (large-v3-turbo) has no lightning equivalent — mapped to large-v3.
+# 'large-v1' has no lightning equivalent — mapped to large.
+_LIGHTNING_MODEL_MAP: dict[str, str] = {
+    "tiny":     "tiny",
+    "base":     "base",
+    "small":    "small",
+    "medium":   "medium",
+    "large":    "large",
+    "large-v1": "large",       # no v1-specific lightning model; large is closest
+    "large-v2": "large-v2",
+    "large-v3": "large-v3",
+    "turbo":    "large-v3",    # large-v3-turbo has no lightning equivalent
+}
+
+# Lightning quantization auto-selected by available RAM.
+# lightning quant param: None (full) | "4bit" | "8bit"
+def _lightning_quant(ram_gb: int) -> Optional[str]:
+    """Return lightning-whisper-mlx quant string based on available RAM."""
+    if ram_gb >= 16:
+        return None     # full precision
+    if ram_gb >= 8:
+        return "4bit"
+    return "8bit"
+
 _MODEL_INFO = {
     "tiny":     "75 MB  — fastest, fair accuracy",
     "base":     "139 MB — fast, good accuracy",
@@ -194,7 +231,10 @@ def transcribe_local(
     """
     Transcribe using the best available backend.
 
-    Backend priority: MLX (Apple Silicon) → faster-whisper → openai-whisper.
+    Backend priority on Apple Silicon:
+      Lightning-Whisper-MLX → MLX-Whisper → faster-whisper → openai-whisper.
+    Backend priority on other platforms:
+      faster-whisper → openai-whisper.
 
     Parameters
     ----------
@@ -202,23 +242,24 @@ def transcribe_local(
     model               : Whisper model alias. On Apple Silicon defaults to 'turbo'.
     language            : BCP-47 language code. None = auto-detect.
     verbose             : Print progress to stdout.
-    batch_size          : faster-whisper batch size (ignored by MLX and openai-whisper).
+    batch_size          : faster-whisper batch size (ignored by MLX backends).
     compute_type        : CTranslate2 compute type (faster-whisper only). Auto-detected.
     device              : 'cuda' or 'cpu' (faster-whisper/openai-whisper only).
     initial_prompt      : Domain context injected before transcription to guide the model.
-                          Note: disables batched inference (falls back to beam search).
+                          Note: not supported by Lightning-Whisper-MLX (silently ignored).
+                          Note: disables batched inference on faster-whisper.
     temperature         : Sampling temperature. 0.0 = greedy (deterministic, recommended).
-                          Note: non-zero temperature disables batched inference.
-    beam_size           : Beam search width for the non-batched path.
+                          Not supported by MLX backends (silently ignored).
+                          Note: non-zero temperature disables faster-whisper batched inference.
+    beam_size           : Beam search width for the faster-whisper non-batched path.
     word_timestamps     : Return word-level timing in each segment's 'words' list.
-                          Supported by faster-whisper and openai-whisper.
-                          MLX-Whisper: silently ignored (word timestamps not supported).
+                          Supported by faster-whisper and openai-whisper only.
+                          MLX backends: silently ignored (word timestamps not supported).
     no_speech_threshold : Probability below which a segment is treated as non-speech
-                          and discarded (default 0.6). Suppresses hallucinations in
-                          silent regions. faster-whisper and openai-whisper only.
+                          and discarded (default 0.6). faster-whisper and openai-whisper only.
     vad_filter          : Apply Voice Activity Detection before transcription (default
                           True). Set False to disable if VAD trims real speech.
-                          MLX-Whisper: silently ignored (no VAD support).
+                          MLX backends: silently ignored (no VAD support).
     vad_threshold       : VAD speech probability threshold (default 0.5).
     vad_min_silence_ms  : Minimum silence (ms) to split chunks (default 500).
     vad_speech_pad_ms   : Padding added around detected speech (ms, default 200).
@@ -231,8 +272,21 @@ def transcribe_local(
     if model == DEFAULT_WHISPER_MODEL and _is_apple_silicon():
         model = DEFAULT_WHISPER_MODEL_APPLE
 
-    # Item 9: try MLX-Whisper first on Apple Silicon
+    # Apple Silicon backend priority:
+    #   1. Lightning-Whisper-MLX  (fastest — batched decoding, distil models)
+    #   2. MLX-Whisper            (fast — supports initial_prompt)
+    #   3. faster-whisper / openai-whisper (CPU fallback)
     if _is_apple_silicon():
+        # Priority 1: Lightning-Whisper-MLX
+        try:
+            from lightning_whisper_mlx import LightningWhisperMLX  # noqa: F401
+            return _transcribe_lightning(
+                audio_path, model, language, verbose, batch_size,
+            )
+        except ImportError:
+            pass
+
+        # Priority 2: MLX-Whisper
         try:
             import mlx_whisper  # noqa: F401
             return _transcribe_mlx(
@@ -240,8 +294,10 @@ def transcribe_local(
             )
         except ImportError:
             if verbose:
-                print("💡 mlx-whisper not installed — using faster-whisper")
-                print("   For faster Apple Silicon transcription:  pip install mlx-whisper")
+                print("💡 No MLX backend installed — using faster-whisper (CPU)")
+                print("   For fastest Apple Silicon transcription:")
+                print("     pip install \"wishcribe[apple]\"")
+                print("   or just: pip install lightning-whisper-mlx")
 
     # faster-whisper (CUDA or CPU)
     try:
@@ -266,7 +322,88 @@ def transcribe_local(
         )
 
 
-# ── MLX-Whisper backend (Apple Silicon) ──────────────────────────────────────
+# ── Lightning-Whisper-MLX backend (Apple Silicon, priority 1) ─────────────────
+
+def _transcribe_lightning(
+    audio_path: str,
+    model: str,
+    language: Optional[str],
+    verbose: bool,
+    batch_size: int,
+) -> list[dict]:
+    """
+    Transcribe using Lightning-Whisper-MLX (fastest Apple Silicon backend).
+
+    Uses batched decoding on the Neural Engine / GPU — 10× faster than
+    standard mlx-whisper, 4× faster than the previous MLX implementation.
+
+    Limitations vs mlx-whisper:
+      - initial_prompt not supported (silently ignored at caller)
+      - temperature not supported (always greedy)
+      - word_timestamps not supported (MLX limitation)
+      - Downloads models to ./mlx_models/ in CWD on first use
+
+    Model names are mapped from wishcribe aliases to lightning's own names.
+    Quantization is auto-selected based on available unified memory:
+      >= 16 GB → full precision
+      >= 8 GB  → 4-bit
+      <  8 GB  → 8-bit
+    """
+    from lightning_whisper_mlx import LightningWhisperMLX
+
+    lightning_model = _LIGHTNING_MODEL_MAP.get(model, model)
+    ram_gb = _mlx_ram_gb()
+    quant  = _lightning_quant(ram_gb)
+
+    # Item 12: tune OMP_NUM_THREADS to P-cores
+    perf_cores = _apple_perf_cores()
+    os.environ.setdefault("OMP_NUM_THREADS", str(perf_cores))
+
+    # Lightning batch_size: use caller's batch_size if given, else default 12.
+    # Higher batch_size = higher throughput but more unified memory.
+    # Clamp to a safe upper bound (24) to prevent OOM on smaller models.
+    lightning_batch = min(max(batch_size, 4), 24)
+
+    quant_str = quant if quant else "full"
+    if verbose:
+        print(f"⚡ Transcribing with Lightning-Whisper-MLX (Apple Silicon)")
+        print(f"   Model: {lightning_model}  |  Quant: {quant_str}"
+              f"  |  RAM: {ram_gb} GB  |  Batch: {lightning_batch}")
+        print("   Transcribing", end="", flush=True)
+
+    # Instantiate — this triggers model download to ./mlx_models/ on first run
+    whisper = LightningWhisperMLX(
+        model=lightning_model,
+        batch_size=lightning_batch,
+        quant=quant,
+    )
+
+    ok = False
+    try:
+        result = whisper.transcribe(audio_path=audio_path, language=language)
+        ok = True
+    finally:
+        if verbose and not ok:
+            print()  # ensure traceback starts on fresh line
+
+    # result = {"text": str, "segments": [...]}
+    # segments schema matches mlx_whisper: [{"start": float, "end": float, "text": str}, ...]
+    raw = result.get("segments", []) if isinstance(result, dict) else []
+    segments = []
+    for s in raw:
+        text = (s.get("text", "") if isinstance(s, dict) else getattr(s, "text", "")).strip()
+        if text:
+            start = s.get("start", 0.0) if isinstance(s, dict) else getattr(s, "start", 0.0)
+            end   = s.get("end",   0.0) if isinstance(s, dict) else getattr(s, "end",   0.0)
+            segments.append({"start": start, "end": end, "text": text})
+
+    if verbose:
+        print(f" done — {len(segments)} segments")
+
+    return segments
+
+
+# ── MLX-Whisper backend (Apple Silicon, priority 2) ───────────────────────────
 
 def _mlx_ram_gb() -> int:
     """Return total unified memory in GB on Apple Silicon via sysctl."""
@@ -324,6 +461,7 @@ def _transcribe_mlx(
     if verbose:
         print(f"🍎 Transcribing with MLX-Whisper (Apple Silicon)")
         print(f"   Model: {mlx_model}  |  RAM: {ram_gb} GB  |  P-cores: {perf_cores}")
+        print(f"   (install lightning-whisper-mlx for 10× faster batched decoding)")
         if initial_prompt:
             snippet = initial_prompt[:60] + ("…" if len(initial_prompt) > 60 else "")
             print(f'   Prompt: "{snippet}"')

@@ -10,7 +10,7 @@ Fast multi-speaker audio/video transcription — fully offline after first run.
 
 - **Multi-speaker transcription** — speaker labels per segment (`[SPEAKER_00]`, `[SPEAKER_01]`, …)
 - **4–8× faster** than openai-whisper via CTranslate2 batched inference + VAD
-- **Apple Silicon native** — MLX-Whisper auto-selected on M1/M2/M3/M4 (Neural Engine / GPU), chip name shown in banner
+- **Apple Silicon native** — Lightning-Whisper-MLX auto-selected on M1/M2/M3/M4 (10× faster batched Neural Engine decoding); falls back to MLX-Whisper, chip name shown in banner
 - **Fully offline** after one-time model download
 - **Word-level timestamps** — `--word-timestamps` embeds per-word timing in SRT/JSON
 - **VAD controls** — `--no-vad`, `--vad-threshold`, `--vad-min-silence-ms`, `--vad-speech-pad-ms`
@@ -35,7 +35,7 @@ pip install wishcribe
 pip install "wishcribe[apple]"
 ```
 
-Installs `mlx-whisper` for Neural Engine / GPU acceleration. Automatically selected when running on Apple Silicon.
+Installs `lightning-whisper-mlx` (priority 1, batched decoding) and `mlx-whisper` (priority 2) for Neural Engine / GPU acceleration. Backend auto-selected when running on Apple Silicon.
 
 ### Legacy fallback
 
@@ -298,17 +298,46 @@ wishcribe automatically picks the best available backend:
 
 ```
 Apple Silicon (M1/M2/M3/M4)
-└── mlx-whisper installed?  → MLX-Whisper (Neural Engine / GPU)
-└── else                    → faster-whisper (CPU)
+├── lightning-whisper-mlx installed?  → Lightning-Whisper-MLX  ← fastest ⭐
+├── mlx-whisper installed?            → MLX-Whisper
+└── else                              → faster-whisper (CPU)
 
 Other platforms
-└── faster-whisper installed?  → faster-whisper + batched inference + VAD
+├── faster-whisper installed?  → faster-whisper + batched inference + VAD
 └── else                       → openai-whisper (fallback, slower)
 ```
 
-### MLX-Whisper (Apple Silicon)
+Install both Apple Silicon backends with one command:
+```bash
+pip install "wishcribe[apple]"
+```
 
-Automatically selects the right quantized model based on available RAM:
+### Lightning-Whisper-MLX (Apple Silicon, priority 1)
+
+**10× faster than standard MLX-Whisper** via batched decoding on the Neural Engine / GPU.
+
+Automatically selects quantization based on available unified memory:
+
+| RAM | Quantization |
+|-----|-------------|
+| ≥ 16 GB | Full precision |
+| ≥ 8 GB | 4-bit |
+| < 8 GB | 8-bit |
+
+Additional models available with Lightning (English-only distil variants):
+
+| Model | Notes |
+|-------|-------|
+| `distil-small.en` | Distilled small, English only |
+| `distil-medium.en` | Distilled medium, English only |
+| `distil-large-v2` | Distilled large-v2, English only, fast |
+| `distil-large-v3` | Distilled large-v3, English only, fastest large |
+
+> **Note:** `initial_prompt`, `temperature`, `--word-timestamps`, and `--no-vad` are not supported by Lightning-Whisper-MLX and are silently ignored. Use `mlx-whisper` alone (remove `lightning-whisper-mlx`) if you need these features on Apple Silicon.
+
+### MLX-Whisper (Apple Silicon, priority 2)
+
+Falls back to this when `lightning-whisper-mlx` is not installed. Supports `initial_prompt`. Automatically selects the right quantized model based on available RAM:
 
 | RAM | Model loaded |
 |-----|-------------|
@@ -497,11 +526,14 @@ wishcribe --video meeting.mp4 --bahasa id
 - `faster-whisper >= 1.0` (transcription)
 - `pyannote.audio >= 3.1` (diarization)
 - `torch >= 2.0`
-- Apple Silicon only: `mlx-whisper >= 0.4` (`pip install "wishcribe[apple]"`)
+- Apple Silicon only: `lightning-whisper-mlx >= 0.0.10` + `mlx-whisper >= 0.4` (`pip install "wishcribe[apple]"`)
 
 ---
 
 ## Changelog
+
+### v1.3.1
+- **Lightning-Whisper-MLX backend** — auto-selected as priority 1 on Apple Silicon (10× faster than MLX-Whisper via batched Neural Engine decoding); `pip install "wishcribe[apple]"` now installs both Lightning and MLX-Whisper
 
 ### v1.3.0
 - **Word-level timestamps** — `--word-timestamps` embeds per-word timing in SRT (karaoke-style, one block per word) and JSON (`words` array with `start`, `end`, `probability`)

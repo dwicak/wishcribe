@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "wishcribe"
-version         = "1.3.0"
+version         = "1.3.1"
 description     = "Fast multi-speaker audio/video transcription — faster-whisper + pyannote.audio"
 readme          = "README.md"
 license         = { text = "MIT" }
@@ -36,9 +36,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Apple Silicon: MLX-Whisper uses Neural Engine / GPU via Apple's MLX framework.
-# Automatically selected when running on M1/M2/M3/M4. Much faster than faster-whisper on Mac.
-apple  = ["mlx-whisper>=0.4.0"]
+# Apple Silicon: Lightning-Whisper-MLX (priority 1) + MLX-Whisper (priority 2).
+# Auto-selected on M1/M2/M3/M4. Lightning uses batched decoding (10x faster).
+apple  = ["lightning-whisper-mlx>=0.0.10", "mlx-whisper>=0.4.0"]
 # Legacy openai-whisper backend (slower, CPU-friendly, no CTranslate2 needed)
 legacy = ["openai-whisper>=20231117"]
 # OpenAI cloud API transcription (no local GPU needed)
