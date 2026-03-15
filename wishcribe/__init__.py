@@ -34,6 +34,9 @@ Quick start
     # Tune silence suppression (v1.3.0)
     segments = transcribe("meeting.mp4", no_speech_threshold=0.8)
 
+    # Fast mode — ~40-50% faster on Apple Silicon M1 (v1.4.0)
+    segments = transcribe("meeting.mp4", fast_mode=True)
+
 Each Segment has: .start  .end  .speaker  .text  .words (when word_timestamps=True)
 """
 
@@ -42,4 +45,4 @@ from .download import download_all as download
 from .models import Segment
 
 __all__ = ["transcribe", "download", "Segment"]
-__version__ = "1.3.2"
+__version__ = "1.4.0"

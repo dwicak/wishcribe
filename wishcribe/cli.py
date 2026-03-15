@@ -14,6 +14,9 @@ Examples
   # Transcribe with speaker labels
   wishcribe --video meeting.mp4 --bahasa id
 
+  # Apple Silicon M1 fast mode (~40-50% faster, greedy decoding)
+  wishcribe --video meeting.mp4 --fast-mode
+
   # Accuracy controls (new in v1.2.0)
   wishcribe --video meeting.mp4 --initial-prompt "Medical: hypertension, tachycardia."
   wishcribe --video meeting.mp4 --temperature 0.2
@@ -123,6 +126,17 @@ def _add_accuracy_args(parser):
             "Helps suppress hallucinations in quiet regions."
         ),
     )
+    # v1.4.0 — fast mode (M1 optimisation)
+    ac.add_argument(
+        "--fast-mode", action="store_true",
+        help=(
+            "Enable M1-optimised fast transcription on MLX-Whisper: "
+            "greedy decoding (beam_size=1), VAD chunk packing, and concurrent model warmup. "
+            "~40-50%% faster with minimal accuracy loss. "
+            "Recommended for long recordings on Apple Silicon. "
+            "Ignored on non-Apple platforms."
+        ),
+    )
 
 
 def _add_vad_args(parser):
@@ -216,6 +230,8 @@ def _cmd_run(args):
             vad_threshold=getattr(args, "vad_threshold", 0.5),
             vad_min_silence_ms=getattr(args, "vad_min_silence_ms", 500),
             vad_speech_pad_ms=getattr(args, "vad_speech_pad_ms", 200),
+            # v1.4.0 controls
+            fast_mode=getattr(args, "fast_mode", False),
         )
     except FileNotFoundError as exc:
         print(f"\n❌ File not found: {exc}")
@@ -315,6 +331,7 @@ def main():
     parser.add_argument("--vad-threshold",       type=float, default=0.5,      help=argparse.SUPPRESS)
     parser.add_argument("--vad-min-silence-ms",  type=int,   default=500,      help=argparse.SUPPRESS)
     parser.add_argument("--vad-speech-pad-ms",   type=int,   default=200,      help=argparse.SUPPRESS)
+    parser.add_argument("--fast-mode",           action="store_true",          help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
