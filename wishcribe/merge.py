@@ -29,12 +29,13 @@ def merge_segments(
     Parameters
     ----------
     whisper_segs  : List of dicts or objects with start/end/text fields.
+                    Optional 'words' key carries word-level timestamps (item 7).
     diarization   : List of (start, end, speaker) tuples from pyannote.
                     None = --no-diarize mode; segments returned without speaker labels.
 
     Returns
     -------
-    List of Segment(start, end, speaker, text)
+    List of Segment(start, end, speaker, text, words=...)
     """
     merged = []
 
@@ -44,17 +45,20 @@ def merge_segments(
             w_start = float(seg["start"])
             w_end   = float(seg["end"])
             w_text  = str(seg.get("text", "")).strip()
+            w_words = seg.get("words")  # item 7: carry word timestamps through
         else:
             w_start = float(seg.start)
             w_end   = float(seg.end)
             w_text  = str(seg.text).strip()
+            w_words = getattr(seg, "words", None)
 
         if not w_text:
             continue  # skip empty segments (VAD artifact or silence)
 
         if diarization is None:
             # --no-diarize mode: empty speaker = hidden in output
-            merged.append(Segment(start=w_start, end=w_end, speaker="", text=w_text))
+            merged.append(Segment(start=w_start, end=w_end, speaker="", text=w_text,
+                                  words=w_words))
             continue
 
         # Find speaker with maximum overlap
@@ -73,6 +77,7 @@ def merge_segments(
         merged.append(Segment(
             start=w_start, end=w_end,
             speaker=best_speaker, text=w_text,
+            words=w_words,
         ))
 
     return merged

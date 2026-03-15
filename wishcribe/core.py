@@ -20,6 +20,14 @@ Accuracy controls (v1.2.0):
   - temperature    : sampling temperature (0.0 = greedy, default)
   - beam_size      : beam search width for non-batched path
 
+New in v1.3.0:
+  - word_timestamps     : word-level timing in SRT/JSON (item 7)
+  - no_speech_threshold : suppress hallucinated segments (item 8)
+  - --no-vad            : escape hatch to disable VAD (item 13)
+  - vad_threshold / vad_min_silence_ms / vad_speech_pad_ms (item 14)
+  - Apple Silicon chip name shown in banner (item 16)
+  - Auto-disable diarization with early warning if no token/cache (item 17)
+
 Robustness:
   - All errors raise exceptions (no sys.exit in library code)
   - Upfront validation of model cache and token before pipeline starts
@@ -38,7 +46,7 @@ from .diarize import run_diarization
 from .transcribe import (
     transcribe_local, transcribe_api,
     DEFAULT_WHISPER_MODEL, DEFAULT_WHISPER_MODEL_APPLE,
-    _MODEL_INFO, _is_apple_silicon,
+    _MODEL_INFO, _is_apple_silicon, _apple_chip_name,
 )
 from .merge import merge_segments
 from .output import write_txt, write_srt, write_json
@@ -74,6 +82,15 @@ def transcribe(
     initial_prompt: Optional[str] = None,
     temperature: float = 0.0,
     beam_size: int = 5,
+    # v1.3.0 — word timestamps (item 7)
+    word_timestamps: bool = False,
+    # v1.3.0 — no-speech suppression (item 8)
+    no_speech_threshold: float = 0.6,
+    # v1.3.0 — VAD controls (items 13+14)
+    vad_filter: bool = True,
+    vad_threshold: float = 0.5,
+    vad_min_silence_ms: int = 500,
+    vad_speech_pad_ms: int = 200,
 ) -> list[Segment]:
     """
     Transcribe an audio/video file with per-speaker labels.
@@ -90,20 +107,32 @@ def transcribe(
     batch_size     : faster-whisper batch size. Higher = faster on GPU. Default 16.
     compute_type   : 'float16' (GPU), 'int8' (CPU/low-mem). Auto-detected.
     device         : 'cuda' or 'cpu'. Auto-detected.
-    initial_prompt : Domain context injected before transcription to guide the model
-                     (e.g. "Medical: hypertension, tachycardia."). Helps with
-                     specialised vocabulary and consistent casing/punctuation.
-                     Note: disables batched inference (uses beam search instead).
-    temperature    : Sampling temperature. 0.0 = greedy (default). Higher values
-                     (0.2-1.0) increase diversity. Non-zero disables batched inference.
-    beam_size      : Beam search width for non-batched path (default: 5).
-    output_dir     : Where to save files. Default: same folder as input.
-    use_api        : Use OpenAI Whisper API instead of local model.
-    api_key        : OpenAI API key (required when use_api=True).
-    save_txt       : Write <stem>_transcript.txt
-    save_srt       : Write <stem>_transcript.srt
-    save_json      : Write <stem>_transcript.json
-    verbose        : Print progress to stdout.
+    initial_prompt      : Domain context injected before transcription to guide the model
+                          (e.g. "Medical: hypertension, tachycardia."). Helps with
+                          specialised vocabulary and consistent casing/punctuation.
+                          Note: disables batched inference (uses beam search instead).
+    temperature         : Sampling temperature. 0.0 = greedy (default). Higher values
+                          (0.2-1.0) increase diversity. Non-zero disables batched inference.
+    beam_size           : Beam search width for non-batched path (default: 5).
+    word_timestamps     : Embed word-level timing in each segment (default False).
+                          Reflected in SRT output and JSON 'words' field.
+                          Not supported by MLX-Whisper (silently ignored).
+    no_speech_threshold : Probability below which a segment is discarded as non-speech
+                          (default 0.6). Suppresses hallucinations in silent regions
+                          while preserving cross-window coherence.
+    vad_filter          : Apply Voice Activity Detection before transcription (default
+                          True). Set False (--no-vad) if VAD incorrectly trims speech.
+                          MLX-Whisper: silently ignored (no VAD support).
+    vad_threshold       : VAD speech probability threshold (default 0.5).
+    vad_min_silence_ms  : Minimum silence gap (ms) to split chunks (default 500).
+    vad_speech_pad_ms   : Padding added around speech regions (ms, default 200).
+    output_dir          : Where to save files. Default: same folder as input.
+    use_api             : Use OpenAI Whisper API instead of local model.
+    api_key             : OpenAI API key (required when use_api=True).
+    save_txt            : Write <stem>_transcript.txt
+    save_srt            : Write <stem>_transcript.srt
+    save_json           : Write <stem>_transcript.json
+    verbose             : Print progress to stdout.
 
     Returns
     -------
@@ -137,7 +166,22 @@ def transcribe(
     if not use_api:
         _validate_model_cached(effective_model)
     if diarize:
-        _validate_diarize_ready(hf_token, model_path)
+        try:
+            _validate_diarize_ready(hf_token, model_path)
+        except RuntimeError as exc:
+            # No token and no cached model — auto-disable diarization instead of
+            # failing deep in the pipeline.  Print a clear warning and continue
+            # without speaker labels so the transcription still completes.
+            if verbose:
+                print(
+                    "⚠️  Diarization skipped — no HuggingFace token and no cached model.\n"
+                    "   To enable speaker labels, either:\n"
+                    "     wishcribe download --hf-token hf_xxx   (download once, then offline)\n"
+                    "     wishcribe --video file.mp4 --hf-token hf_xxx\n"
+                    "     export WISHCRIBE_HF_TOKEN=hf_xxx\n"
+                    "   Continuing without speaker labels...\n"
+                )
+            diarize = False
 
     out_dir = Path(output_dir) if output_dir else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -148,6 +192,8 @@ def transcribe(
             input_path.name, model, language, use_api, num_speakers,
             hf_token, model_path, diarize, batch_size, compute_type, device,
             initial_prompt, temperature, beam_size,
+            word_timestamps=word_timestamps,
+            vad_filter=vad_filter,
         )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -163,6 +209,12 @@ def transcribe(
                 audio_path, effective_model, language, verbose=verbose,
                 batch_size=batch_size, compute_type=compute_type, device=device,
                 initial_prompt=initial_prompt, temperature=temperature, beam_size=beam_size,
+                word_timestamps=word_timestamps,
+                no_speech_threshold=no_speech_threshold,
+                vad_filter=vad_filter,
+                vad_threshold=vad_threshold,
+                vad_min_silence_ms=vad_min_silence_ms,
+                vad_speech_pad_ms=vad_speech_pad_ms,
             )
 
         # Step 3: Diarize (after transcription — GPU memory now freed)
@@ -189,7 +241,8 @@ def transcribe(
     if save_txt:
         write_txt(segments, str(out_dir / f"{stem}_transcript.txt"))
     if save_srt:
-        write_srt(segments, str(out_dir / f"{stem}_transcript.srt"))
+        write_srt(segments, str(out_dir / f"{stem}_transcript.srt"),
+                  word_timestamps=word_timestamps)
     if save_json:
         write_json(segments, str(out_dir / f"{stem}_transcript.json"))
 
@@ -261,7 +314,8 @@ def _validate_diarize_ready(hf_token, model_path) -> None:
 
 def _banner(name, model, language, use_api, num_speakers, hf_token, model_path,
             diarize, batch_size, compute_type, device,
-            initial_prompt=None, temperature=0.0, beam_size=5):
+            initial_prompt=None, temperature=0.0, beam_size=5,
+            word_timestamps=False, vad_filter=True):
     if not diarize:
         diarize_str = "disabled (--no-diarize)"
     elif model_path:
@@ -281,12 +335,13 @@ def _banner(name, model, language, use_api, num_speakers, hf_token, model_path,
     model_display = f"{effective_model}  ({model_desc})" if model_desc else effective_model
 
     if apple:
-        # On Apple Silicon the backend depends on what's installed
+        chip = _apple_chip_name()
+        # Determine which backend is actually active
         try:
             import mlx_whisper  # noqa: F401
-            backend_str = "MLX-Whisper (Apple Silicon — Neural Engine / GPU)"
+            backend_str = f"MLX-Whisper  [{chip} — Neural Engine / GPU]"
         except ImportError:
-            backend_str = "faster-whisper (install mlx-whisper for faster Apple Silicon)"
+            backend_str = f"faster-whisper  [{chip} — install mlx-whisper for Neural Engine]"
     else:
         backend_str = "faster-whisper + batched inference + VAD"
 
@@ -319,6 +374,10 @@ def _banner(name, model, language, use_api, num_speakers, hf_token, model_path,
             print(f"  Temperature: {temperature}")
         if beam_size != 5:
             print(f"  Beam size  : {beam_size}")
+    if word_timestamps:
+        print(f"  Words      : enabled (word-level timestamps in SRT/JSON)")
+    if not vad_filter:
+        print(f"  VAD        : disabled (--no-vad)")
     print("═" * 64 + "\n")
 
 

@@ -25,7 +25,16 @@ Quick start
     segments = transcribe("meeting.mp4", initial_prompt="Medical: hypertension.")
     segments = transcribe("meeting.mp4", temperature=0.2, beam_size=10)
 
-Each Segment has: .start  .end  .speaker  .text
+    # Word-level timestamps in SRT/JSON (v1.3.0)
+    segments = transcribe("meeting.mp4", word_timestamps=True)
+
+    # Disable VAD if it trims real speech (v1.3.0)
+    segments = transcribe("meeting.mp4", vad_filter=False)
+
+    # Tune silence suppression (v1.3.0)
+    segments = transcribe("meeting.mp4", no_speech_threshold=0.8)
+
+Each Segment has: .start  .end  .speaker  .text  .words (when word_timestamps=True)
 """
 
 from .core import transcribe
@@ -33,4 +42,4 @@ from .download import download_all as download
 from .models import Segment
 
 __all__ = ["transcribe", "download", "Segment"]
-__version__ = "1.2.0"
+__version__ = "1.3.0"

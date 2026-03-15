@@ -17,9 +17,45 @@ Fixes over v1:
 """
 from __future__ import annotations
 
+import contextlib
 import gc
 import os
 from typing import Optional
+
+
+@contextlib.contextmanager
+def _suppress_fd2():
+    """
+    Redirect OS-level stderr (fd 2) to /dev/null for the duration of the block.
+
+    On macOS, onnxruntime (loaded by pyannote) and the AV framework print
+    objc[] / AVFFrameReceiver duplicate-dylib warnings on every runSession call.
+    These come from the ObjC/C runtime and write directly to file descriptor 2,
+    bypassing Python's sys.stderr entirely.  Redirecting fd 2 is the only
+    reliable way to silence them.
+
+    Degrades gracefully — if /dev/null cannot be opened, yields without
+    suppression rather than crashing the pipeline.
+    """
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        yield
+        return
+    try:
+        saved_fd2 = os.dup(2)
+    except OSError:
+        os.close(devnull_fd)
+        yield
+        return
+    try:
+        os.dup2(devnull_fd, 2)
+        yield
+    finally:
+        os.dup2(saved_fd2, 2)
+        os.close(saved_fd2)
+        os.close(devnull_fd)
+
 
 _MODEL_ID = "pyannote/speaker-diarization-community-1"
 _HF_CACHE_PATH = os.path.expanduser(
@@ -98,7 +134,11 @@ def run_diarization(
     if num_speakers:
         params["num_speakers"] = num_speakers
 
-    diarization = pipeline(audio_path, **params)
+    # Suppress macOS objc[] / AVFFrameReceiver duplicate-dylib warnings.
+    # onnxruntime (loaded by pyannote) fires these on every runSession call
+    # by writing directly to OS fd 2 — not catchable via Python's sys.stderr.
+    with _suppress_fd2():
+        diarization = pipeline(audio_path, **params)
 
     # Extract segments BEFORE deleting pipeline/diarization so that if
     # _extract_segments raises (unknown output format), the finally block

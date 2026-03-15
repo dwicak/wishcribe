@@ -18,6 +18,14 @@ New in v1.2.0
   - --initial-prompt  : inject domain context to guide transcription (item 4)
   - --temperature     : sampling temperature (0.0 = greedy, item 5)
   - --beam-size       : beam search width for non-batched path (item 6)
+
+New in v1.3.0
+-------------
+  - word_timestamps     : word-level timing in SRT/JSON output (item 7)
+  - no_speech_threshold : discard silent segments, suppress hallucination (item 8)
+  - vad_filter=False    : --no-vad escape hatch to bypass VAD (item 13)
+  - vad_threshold / vad_min_silence_ms / vad_speech_pad_ms (item 14)
+  - _apple_chip_name()  : reads sysctl for exact chip label in banner (item 16)
 """
 from __future__ import annotations
 
@@ -37,6 +45,25 @@ DEFAULT_WHISPER_MODEL_APPLE = "turbo"  # faster on Apple Silicon Neural Engine
 def _is_apple_silicon() -> bool:
     """Return True if running on Apple Silicon (M1/M2/M3/M4)."""
     return platform.system() == "Darwin" and platform.machine() == "arm64"
+
+
+def _apple_chip_name() -> str:
+    """
+    Return a human-readable chip label, e.g. 'Apple M3 Pro'.
+    Uses sysctl machdep.cpu.brand_string on Apple Silicon.
+    Falls back to 'Apple Silicon (M-series)' if unavailable.
+    """
+    try:
+        out = subprocess.check_output(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if out:
+            return out
+    except Exception:
+        pass
+    return "Apple Silicon (M-series)"
 
 
 def _apple_perf_cores() -> int:
@@ -154,6 +181,15 @@ def transcribe_local(
     initial_prompt: Optional[str] = None,
     temperature: float = 0.0,
     beam_size: int = 5,
+    # Item 7: word-level timestamps
+    word_timestamps: bool = False,
+    # Item 8: suppress hallucinated segments in silent regions
+    no_speech_threshold: float = 0.6,
+    # Items 13+14: VAD controls
+    vad_filter: bool = True,
+    vad_threshold: float = 0.5,
+    vad_min_silence_ms: int = 500,
+    vad_speech_pad_ms: int = 200,
 ) -> list[dict]:
     """
     Transcribe using the best available backend.
@@ -162,26 +198,34 @@ def transcribe_local(
 
     Parameters
     ----------
-    audio_path     : Path to 16 kHz mono WAV file.
-    model          : Whisper model alias. On Apple Silicon defaults to 'turbo'.
-    language       : BCP-47 language code. None = auto-detect.
-    verbose        : Print progress to stdout.
-    batch_size     : faster-whisper batch size (ignored by MLX and openai-whisper).
-    compute_type   : CTranslate2 compute type (faster-whisper only). Auto-detected.
-    device         : 'cuda' or 'cpu' (faster-whisper/openai-whisper only).
-    initial_prompt : Domain context injected before transcription to guide the model
-                     (e.g. "Medical: hypertension, tachycardia."). Helps with
-                     specialised vocabulary and consistent casing/punctuation.
-                     Note: disables batched inference (falls back to beam search).
-    temperature    : Sampling temperature. 0.0 = greedy (deterministic, recommended).
-                     Higher values (0.2-1.0) increase diversity but may reduce accuracy.
-                     Note: non-zero temperature disables batched inference.
-    beam_size      : Beam search width for the non-batched path. Larger = more
-                     accurate but slower. Ignored by MLX and batched pipeline.
+    audio_path          : Path to 16 kHz mono WAV file.
+    model               : Whisper model alias. On Apple Silicon defaults to 'turbo'.
+    language            : BCP-47 language code. None = auto-detect.
+    verbose             : Print progress to stdout.
+    batch_size          : faster-whisper batch size (ignored by MLX and openai-whisper).
+    compute_type        : CTranslate2 compute type (faster-whisper only). Auto-detected.
+    device              : 'cuda' or 'cpu' (faster-whisper/openai-whisper only).
+    initial_prompt      : Domain context injected before transcription to guide the model.
+                          Note: disables batched inference (falls back to beam search).
+    temperature         : Sampling temperature. 0.0 = greedy (deterministic, recommended).
+                          Note: non-zero temperature disables batched inference.
+    beam_size           : Beam search width for the non-batched path.
+    word_timestamps     : Return word-level timing in each segment's 'words' list.
+                          Supported by faster-whisper and openai-whisper.
+                          MLX-Whisper: silently ignored (word timestamps not supported).
+    no_speech_threshold : Probability below which a segment is treated as non-speech
+                          and discarded (default 0.6). Suppresses hallucinations in
+                          silent regions. faster-whisper and openai-whisper only.
+    vad_filter          : Apply Voice Activity Detection before transcription (default
+                          True). Set False to disable if VAD trims real speech.
+                          MLX-Whisper: silently ignored (no VAD support).
+    vad_threshold       : VAD speech probability threshold (default 0.5).
+    vad_min_silence_ms  : Minimum silence (ms) to split chunks (default 500).
+    vad_speech_pad_ms   : Padding added around detected speech (ms, default 200).
 
     Returns
     -------
-    List of dicts: [{start, end, text}, ...]
+    List of dicts: [{start, end, text, words?}, ...]
     """
     # Item 11: on Apple Silicon, default to turbo (Neural Engine optimised)
     if model == DEFAULT_WHISPER_MODEL and _is_apple_silicon():
@@ -204,14 +248,21 @@ def transcribe_local(
         import faster_whisper  # noqa: F401
         return _transcribe_faster_whisper(
             audio_path, model, language, verbose, batch_size,
-            compute_type, device, initial_prompt, temperature, beam_size
+            compute_type, device, initial_prompt, temperature, beam_size,
+            word_timestamps=word_timestamps,
+            no_speech_threshold=no_speech_threshold,
+            vad_filter=vad_filter,
+            vad_threshold=vad_threshold,
+            vad_min_silence_ms=vad_min_silence_ms,
+            vad_speech_pad_ms=vad_speech_pad_ms,
         )
     except ImportError:
         if verbose:
             print("⚠️  faster-whisper not found — using openai-whisper (slower)")
             print("   Install for 4-8x speedup:  pip install faster-whisper")
         return _transcribe_openai_whisper(
-            audio_path, model, language, verbose, initial_prompt, temperature
+            audio_path, model, language, verbose, initial_prompt, temperature,
+            word_timestamps=word_timestamps,
         )
 
 
@@ -330,6 +381,13 @@ def _transcribe_faster_whisper(
     initial_prompt: Optional[str],
     temperature: float,
     beam_size: int,
+    *,
+    word_timestamps: bool = False,
+    no_speech_threshold: float = 0.6,
+    vad_filter: bool = True,
+    vad_threshold: float = 0.5,
+    vad_min_silence_ms: int = 500,
+    vad_speech_pad_ms: int = 200,
 ) -> list[dict]:
     """Use faster-whisper with batching and VAD for maximum speed."""
     from faster_whisper import WhisperModel
@@ -366,8 +424,9 @@ def _transcribe_faster_whisper(
 
     if verbose:
         batch_str = f"  |  Batch: {batch_size}" if use_batched else "  |  Batch: disabled"
+        vad_str   = "" if vad_filter else "  |  VAD: off"
         print(f"⚡ Transcribing with faster-whisper '{fw_model}'")
-        print(f"   Device: {device.upper()}  |  Compute: {compute_type}{batch_str}")
+        print(f"   Device: {device.upper()}  |  Compute: {compute_type}{batch_str}{vad_str}")
         if initial_prompt:
             snippet = initial_prompt[:60] + ("…" if len(initial_prompt) > 60 else "")
             print(f'   Prompt: "{snippet}"')
@@ -384,11 +443,16 @@ def _transcribe_faster_whisper(
             ) from exc
         raise  # any other error propagates as-is
 
-    vad_params = {
-        "min_silence_duration_ms": 500,
-        "speech_pad_ms": 200,
-        "threshold": 0.5,
-    }
+    # Items 13+14: build VAD params only when vad_filter is True.
+    # CRITICAL: passing vad_parameters when vad_filter=False raises a TypeError
+    # in faster-whisper — the kwarg is only consumed by the VAD path.
+    vad_params = None
+    if vad_filter:
+        vad_params = {
+            "threshold":              vad_threshold,
+            "min_silence_duration_ms": vad_min_silence_ms,
+            "speech_pad_ms":           vad_speech_pad_ms,
+        }
 
     # Try BatchedInferencePipeline (faster-whisper >= 1.0).
     # Batching is disabled when initial_prompt or non-zero temperature is set,
@@ -400,13 +464,16 @@ def _transcribe_faster_whisper(
             from faster_whisper import BatchedInferencePipeline
             pipeline = BatchedInferencePipeline(model=whisper_model)
             pipeline_created = True  # set immediately so finally block cleans it up
-            segments_iter, info = pipeline.transcribe(
-                audio_path,
+            transcribe_kwargs: dict = dict(
                 language=language,
                 batch_size=batch_size,
-                vad_filter=True,
-                vad_parameters=vad_params,
+                vad_filter=vad_filter,
+                word_timestamps=word_timestamps,
+                no_speech_threshold=no_speech_threshold,
             )
+            if vad_params is not None:
+                transcribe_kwargs["vad_parameters"] = vad_params
+            segments_iter, info = pipeline.transcribe(audio_path, **transcribe_kwargs)
             batched_ok = True
         except ImportError:
             # BatchedInferencePipeline not available — older faster-whisper
@@ -418,16 +485,23 @@ def _transcribe_faster_whisper(
                 print("   (using standard transcription — batching disabled for prompt/temperature)")
             else:
                 print("   (batched pipeline unavailable — using standard transcription)")
-        segments_iter, info = whisper_model.transcribe(
-            audio_path,
+        # Item 8: restore condition_on_previous_text=True (faster-whisper default).
+        # v1.1.1 set this to False to reduce hallucination, but that breaks coherence
+        # across Whisper's 30 s internal windows. The correct solution is to pair
+        # it with no_speech_threshold which discards truly silent segments.
+        standard_kwargs: dict = dict(
             language=language,
             beam_size=beam_size,
             temperature=temperature,
             initial_prompt=initial_prompt,
-            vad_filter=True,
-            vad_parameters=vad_params,
-            condition_on_previous_text=False,  # reduces hallucination
+            vad_filter=vad_filter,
+            condition_on_previous_text=True,
+            no_speech_threshold=no_speech_threshold,
+            word_timestamps=word_timestamps,
         )
+        if vad_params is not None:
+            standard_kwargs["vad_parameters"] = vad_params
+        segments_iter, info = whisper_model.transcribe(audio_path, **standard_kwargs)
 
     if verbose:
         lang = getattr(info, "language", language or "unknown")
@@ -440,8 +514,29 @@ def _transcribe_faster_whisper(
     try:
         for seg in segments_iter:
             text = seg.text.strip()
-            if text:
-                segments.append({"start": seg.start, "end": seg.end, "text": text})
+            if not text:
+                continue  # skip empty segments silently — no dot for blanks
+
+            # Item 7: extract word-level timestamps from faster-whisper.
+            # faster-whisper returns Word namedtuples with .word (not .text).
+            # Normalise to plain dicts so all backends share the same schema.
+            words = None
+            if word_timestamps and seg.words:
+                words = [
+                    {
+                        "word":        w.word,
+                        "start":       w.start,
+                        "end":         w.end,
+                        "probability": w.probability,
+                    }
+                    for w in seg.words
+                ]
+
+            entry: dict = {"start": seg.start, "end": seg.end, "text": text}
+            if words is not None:
+                entry["words"] = words
+            segments.append(entry)
+
             if verbose:
                 print(".", end="", flush=True)
         completed = True
@@ -481,6 +576,8 @@ def _transcribe_openai_whisper(
     verbose: bool,
     initial_prompt: Optional[str],
     temperature: float,
+    *,
+    word_timestamps: bool = False,
 ) -> list[dict]:
     """Fallback: original openai-whisper (no batching, slower)."""
     import whisper
@@ -499,13 +596,32 @@ def _transcribe_openai_whisper(
     # schedule, NOT greedy. Passing temperature=0.0 explicitly disables that schedule
     # and forces true greedy decoding, matching faster-whisper behavior.
     kwargs["temperature"] = temperature
+    # Item 7: word timestamps (openai-whisper key is word_timestamps)
+    if word_timestamps:
+        kwargs["word_timestamps"] = True
 
     result = wm.transcribe(audio_path, **kwargs)
-    segments = [
-        {"start": s["start"], "end": s["end"], "text": s["text"].strip()}
-        for s in result.get("segments", [])
-        if s["text"].strip()
-    ]
+
+    segments = []
+    for s in result.get("segments", []):
+        text = s["text"].strip()
+        if not text:
+            continue
+        entry: dict = {"start": s["start"], "end": s["end"], "text": text}
+        # Item 7: openai-whisper returns word timestamps as a list of dicts with
+        # keys "word", "start", "end" already — normalise probability to 1.0
+        # (openai-whisper does not return per-word probabilities).
+        if word_timestamps and s.get("words"):
+            entry["words"] = [
+                {
+                    "word":        w.get("word", ""),
+                    "start":       w.get("start", s["start"]),
+                    "end":         w.get("end",   s["end"]),
+                    "probability": w.get("probability", 1.0),
+                }
+                for w in s["words"]
+            ]
+        segments.append(entry)
 
     # Free model memory (same pattern as faster-whisper path)
     del wm

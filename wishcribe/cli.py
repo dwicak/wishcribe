@@ -19,6 +19,13 @@ Examples
   wishcribe --video meeting.mp4 --temperature 0.2
   wishcribe --video meeting.mp4 --beam-size 10
 
+  # Word-level timestamps in SRT/JSON (new in v1.3.0)
+  wishcribe --video meeting.mp4 --word-timestamps
+
+  # VAD controls (new in v1.3.0)
+  wishcribe --video meeting.mp4 --no-vad
+  wishcribe --video meeting.mp4 --vad-threshold 0.3 --vad-min-silence-ms 300
+
   # Hardware controls
   wishcribe --video meeting.mp4 --batch-size 4 --compute-type int8
   wishcribe --video meeting.mp4 --device cpu
@@ -71,7 +78,7 @@ def _add_speed_args(parser):
 
 
 def _add_accuracy_args(parser):
-    """Accuracy / transcription quality controls (v1.2.0)."""
+    """Accuracy / transcription quality controls (v1.2.0 + v1.3.0)."""
     ac = parser.add_argument_group("Accuracy")
     ac.add_argument(
         "--initial-prompt", default=None, metavar="TEXT",
@@ -97,6 +104,49 @@ def _add_accuracy_args(parser):
             "Only used when batched inference is disabled "
             "(i.e. when --initial-prompt or non-zero --temperature is set)."
         ),
+    )
+    # v1.3.0 — item 7
+    ac.add_argument(
+        "--word-timestamps", action="store_true",
+        help=(
+            "Embed word-level timing in SRT and JSON output. "
+            "Produces one SRT block per word (karaoke-style). "
+            "Not supported by MLX-Whisper (silently ignored on Apple Silicon + mlx)."
+        ),
+    )
+    # v1.3.0 — item 8
+    ac.add_argument(
+        "--no-speech-threshold", type=float, default=0.6, metavar="FLOAT",
+        help=(
+            "Probability below which a segment is discarded as non-speech "
+            "(default: 0.6). Lower = stricter silence detection. "
+            "Helps suppress hallucinations in quiet regions."
+        ),
+    )
+
+
+def _add_vad_args(parser):
+    """VAD controls (v1.3.0 — items 13+14)."""
+    vad = parser.add_argument_group("VAD (Voice Activity Detection)")
+    vad.add_argument(
+        "--no-vad", action="store_true",
+        help=(
+            "Disable Voice Activity Detection. Use when VAD incorrectly trims "
+            "real speech (e.g. quiet speakers, music, or ambient noise). "
+            "Not applicable to MLX-Whisper (no VAD support)."
+        ),
+    )
+    vad.add_argument(
+        "--vad-threshold", type=float, default=0.5, metavar="FLOAT",
+        help="VAD speech probability threshold (default: 0.5). Lower = more sensitive.",
+    )
+    vad.add_argument(
+        "--vad-min-silence-ms", type=int, default=500, metavar="MS",
+        help="Minimum silence gap (ms) to split audio chunks (default: 500).",
+    )
+    vad.add_argument(
+        "--vad-speech-pad-ms", type=int, default=200, metavar="MS",
+        help="Padding added around detected speech regions (ms, default: 200).",
     )
 
 
@@ -159,6 +209,13 @@ def _cmd_run(args):
             initial_prompt=getattr(args, "initial_prompt", None),
             temperature=getattr(args, "temperature", 0.0),
             beam_size=getattr(args, "beam_size", 5),
+            # v1.3.0 controls
+            word_timestamps=getattr(args, "word_timestamps", False),
+            no_speech_threshold=getattr(args, "no_speech_threshold", 0.6),
+            vad_filter=not getattr(args, "no_vad", False),
+            vad_threshold=getattr(args, "vad_threshold", 0.5),
+            vad_min_silence_ms=getattr(args, "vad_min_silence_ms", 500),
+            vad_speech_pad_ms=getattr(args, "vad_speech_pad_ms", 200),
         )
     except FileNotFoundError as exc:
         print(f"\n❌ File not found: {exc}")
@@ -184,6 +241,7 @@ def _build_run_parser(subparsers):
     _add_model_args(p)
     _add_speed_args(p)
     _add_accuracy_args(p)
+    _add_vad_args(p)
     p.add_argument("--bahasa",     default=None, metavar="LANG",
                    help="Language code e.g. 'id', 'en' (default: auto-detect)")
     p.add_argument("--speakers",   type=int, default=None,
@@ -250,6 +308,13 @@ def main():
     parser.add_argument("--initial-prompt", default=None,           help=argparse.SUPPRESS)
     parser.add_argument("--temperature",    type=float, default=0.0, help=argparse.SUPPRESS)
     parser.add_argument("--beam-size",      type=int, default=5,    help=argparse.SUPPRESS)
+    # v1.3.0 args (also in legacy shorthand path)
+    parser.add_argument("--word-timestamps",     action="store_true",          help=argparse.SUPPRESS)
+    parser.add_argument("--no-speech-threshold", type=float, default=0.6,      help=argparse.SUPPRESS)
+    parser.add_argument("--no-vad",              action="store_true",          help=argparse.SUPPRESS)
+    parser.add_argument("--vad-threshold",       type=float, default=0.5,      help=argparse.SUPPRESS)
+    parser.add_argument("--vad-min-silence-ms",  type=int,   default=500,      help=argparse.SUPPRESS)
+    parser.add_argument("--vad-speech-pad-ms",   type=int,   default=200,      help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
