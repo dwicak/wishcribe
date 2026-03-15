@@ -3,13 +3,7 @@ wishcribe
 =========
 Fast multi-speaker audio/video transcription.
 Backend: faster-whisper (4-8x faster) + pyannote.audio (offline after first run).
-
-Apple Silicon — automatic backend selection (M1/M2/M3/M4):
-  1. Lightning-Whisper-MLX  (10× faster, batched Neural Engine decoding)
-  2. MLX-Whisper            (standard MLX, supports initial_prompt)
-  3. faster-whisper         (CPU fallback)
-
-  Install: pip install "wishcribe[apple]"
+Apple Silicon: MLX-Whisper auto-selected on M1/M2/M3/M4 (Neural Engine / GPU).
 
 Quick start
 -----------
@@ -48,4 +42,4 @@ from .download import download_all as download
 from .models import Segment
 
 __all__ = ["transcribe", "download", "Segment"]
-__version__ = "1.3.0"
+__version__ = "1.3.2"

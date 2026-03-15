@@ -10,9 +10,8 @@ Speed improvements over v1 (openai-whisper):
   - float16 on GPU / int8 on CPU (automatic)
   - GPU memory freed after transcription before diarization runs
 
-Apple Silicon (v1.2.0+):
-  - Lightning-Whisper-MLX auto-selected first (10× faster, batched decoding)
-  - MLX-Whisper selected if lightning not installed
+Apple Silicon (v1.2.0):
+  - MLX-Whisper auto-selected on M1/M2/M3/M4 (Neural Engine / GPU)
   - Default model is 'turbo' on Apple Silicon
   - OMP_NUM_THREADS tuned to performance cores
 
@@ -48,7 +47,6 @@ from .transcribe import (
     transcribe_local, transcribe_api,
     DEFAULT_WHISPER_MODEL, DEFAULT_WHISPER_MODEL_APPLE,
     _MODEL_INFO, _is_apple_silicon, _apple_chip_name,
-    _LIGHTNING_MODEL_MAP,
 )
 from .merge import merge_segments
 from .output import write_txt, write_srt, write_json
@@ -338,19 +336,12 @@ def _banner(name, model, language, use_api, num_speakers, hf_token, model_path,
 
     if apple:
         chip = _apple_chip_name()
-        # Detect which backend is actually active (priority order)
+        # Determine which backend is actually active
         try:
-            from lightning_whisper_mlx import LightningWhisperMLX  # noqa: F401
-            backend_str = f"Lightning-Whisper-MLX  [{chip} — Neural Engine / GPU, batched]"
+            import mlx_whisper  # noqa: F401
+            backend_str = f"MLX-Whisper  [{chip} — Neural Engine / GPU]"
         except ImportError:
-            try:
-                import mlx_whisper  # noqa: F401
-                backend_str = (
-                    f"MLX-Whisper  [{chip} — Neural Engine / GPU]  "
-                    f"(install lightning-whisper-mlx for 10× faster)"
-                )
-            except ImportError:
-                backend_str = f"faster-whisper  [{chip} — CPU]  (install wishcribe[apple] for Neural Engine)"
+            backend_str = f"faster-whisper  [{chip} — install mlx-whisper for Neural Engine]"
     else:
         backend_str = "faster-whisper + batched inference + VAD"
 
@@ -375,14 +366,10 @@ def _banner(name, model, language, use_api, num_speakers, hf_token, model_path,
         snippet = initial_prompt[:50] + ("…" if len(initial_prompt) > 50 else "")
         print(f"  Prompt     : \"{snippet}\"")
     # temperature and beam_size only apply to faster-whisper / openai-whisper.
-    # Both MLX backends (Lightning and mlx-whisper) use greedy decoding and
-    # ignore these params — suppress them from the banner on Apple Silicon to
-    # avoid confusing users who are running a Lightning or MLX backend.
-    any_mlx_active = apple and (
-        importlib.util.find_spec("lightning_whisper_mlx") is not None
-        or importlib.util.find_spec("mlx_whisper") is not None
-    )
-    if not any_mlx_active:
+    # MLX-Whisper uses greedy decoding internally and ignores both — suppress
+    # them from the banner on Apple Silicon + mlx installed to avoid misleading users.
+    mlx_active = apple and importlib.util.find_spec("mlx_whisper") is not None
+    if not mlx_active:
         if temperature != 0.0:
             print(f"  Temperature: {temperature}")
         if beam_size != 5:
