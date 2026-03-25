@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "wishcribe"
-version         = "1.4.0"
+version         = "1.4.1"
+authors 	= [
+    {name = "Darmawan Wicaksono", email = "wishcribe@gmail.com"}
+]
 description     = "Fast multi-speaker audio/video transcription — faster-whisper + pyannote.audio"
 readme          = "README.md"
 license         = { text = "MIT" }
